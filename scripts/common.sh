@@ -15,7 +15,7 @@ else
     QIQI_CYAN='\033[38;5;31m'
     QIQI_BLUE='\033[38;5;31m'
     QIQI_GRAY='\033[38;5;244m'
-    QIQI_WHITE='\033[38;5;245m'
+    QIQI_WHITE=''
     QIQI_RED='\033[38;5;160m'
     QIQI_PLAIN='\033[0m'
     pink(){ printf "${QIQI_PINK}%s${QIQI_PLAIN}\n" "$1"; }
@@ -27,7 +27,7 @@ else
     muted(){ printf "${QIQI_GRAY}%s${QIQI_PLAIN}\n" "$1"; }
     readp(){ local prompt="$1" __var="$2"; IFS='' read -r -p "$prompt" "$__var"; }
     pause(){ local _x; readp "按回车键继续..." _x; }
-    qiqi_section(){ printf "\n${QIQI_PINK}───────────────────── %s ─────────────────────${QIQI_PLAIN}\n" "$1"; }
+    qiqi_section(){ printf "\n${QIQI_PINK}--------------------- %s ---------------------${QIQI_PLAIN}\n" "$1"; }
     qiqi_menu_item(){ printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN}  %s\n" "$1" "$2"; }
     qiqi_banner(){ printf "\n${QIQI_CYAN}%s${QIQI_PLAIN} %s\n%s\n" "$1" "$2" "$3"; }
 fi

@@ -38,7 +38,7 @@ show_project_detail() {
     [ -n "$images" ] || images="未识别"
 
     qiqi_section "项目详情"
-    printf "  ${QIQI_GREEN}项目名称${QIQI_PLAIN}: %s ${QIQI_GRAY}(%s)${QIQI_PLAIN}\n" "$PROJECT_NAME" "$id"
+    printf "  ${QIQI_GREEN}项目名称${QIQI_PLAIN}: %s ${QIQI_WHITE}(%s)${QIQI_PLAIN}\n" "$PROJECT_NAME" "$id"
     printf "  ${QIQI_GREEN}功能说明${QIQI_PLAIN}: %s\n" "$DESCRIPTION"
     printf "  ${QIQI_GREEN}项目地址${QIQI_PLAIN}: %s\n" "${PROJECT_META_URL:-未配置}"
     printf "  ${QIQI_GREEN}运行目录${QIQI_PLAIN}: %s\n" "$path"
@@ -60,7 +60,7 @@ show_all_installed_summary() {
         load_project_meta "$id"
         local_url="$(project_local_url "$id")"
         public_url="$(project_public_url "$id")"
-        printf "  ${QIQI_GREEN}⬥${QIQI_PLAIN} ${QIQI_CYAN}%s${QIQI_PLAIN} ${QIQI_GRAY}(%s)${QIQI_PLAIN} | %b\n" "$PROJECT_NAME" "$id" "$(project_running_status "$id")"
+        printf "  ${QIQI_GREEN}-${QIQI_PLAIN} ${QIQI_CYAN}%s${QIQI_PLAIN} ${QIQI_WHITE}(%s)${QIQI_PLAIN} | %b\n" "$PROJECT_NAME" "$id" "$(project_running_status "$id")"
         printf "    内网: %s | 外网: %s\n" "$local_url" "$public_url"
     done
 }
@@ -79,10 +79,10 @@ select_project_from_ids() {
     i=1
     for id in "${ids[@]}"; do
         load_project_meta "$id"
-        printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN} %s ${QIQI_GRAY}(%s)${QIQI_PLAIN}\n" "$i" "$PROJECT_NAME" "$id"
+        printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN} %s ${QIQI_WHITE}(%s)${QIQI_PLAIN}\n" "$i" "$PROJECT_NAME" "$id"
         i=$((i + 1))
     done
-    printf "  ${QIQI_GRAY}[ 0 ]${QIQI_PLAIN} 返回\n"
+    printf "  ${QIQI_GREEN}[ 0 ]${QIQI_PLAIN} ${QIQI_WHITE}返回${QIQI_PLAIN}\n"
     echo
     readp "  请输入选项数字 → " choice
     [ "$choice" = "0" ] && return 1
@@ -266,30 +266,14 @@ select_custom_project_by_choice() {
     id="${custom_ids[$index]}"
     target_path="$(app_project_path "$id")"
     [ -f "$target_path/project.conf" ] || write_project_conf_defaults "$id" "$target_path/project.conf"
-    install_or_start_project "$id"
-    pause
+    manage_project_loop "$id"
 }
 
 install_builtin_project_by_choice() {
-    local id="$1" choice target_path
-    target_path="$(app_project_path "$id")"
+    local id="$1"
 
     if project_is_installed "$id"; then
-        load_project_meta "$id"
-        qiqi_section "$PROJECT_NAME"
-        muted "检测到项目目录: $target_path"
-        qiqi_menu_item "1" "直接安装 / 启动现有项目"
-        qiqi_menu_item "2" "重新安装（从内置项目覆盖复制）"
-        printf "  ${QIQI_GRAY}[ 0 ]${QIQI_PLAIN} 返回\n"
-        echo
-        readp "  请输入选项 [1] → " choice
-        case "${choice:-1}" in
-            1) install_or_start_project "$id" ;;
-            2) reinstall_builtin_project "$id" && install_or_start_project "$id" ;;
-            0) return 0 ;;
-            *) red "无效选项。" ;;
-        esac
-        pause
+        manage_project_loop "$id"
         return 0
     fi
 
@@ -313,9 +297,9 @@ install_menu() {
             for id in "${builtin_ids[@]}"; do
                 load_project_meta "$id"
                 if project_is_installed "$id"; then
-                    status="${QIQI_BLUE}已在 /app${QIQI_PLAIN}"
+                    status="${QIQI_GREEN}已安装 / 进入管理${QIQI_PLAIN}"
                 else
-                    status="${QIQI_GRAY}未安装${QIQI_PLAIN}"
+                    status="${QIQI_WHITE}未安装 / 选择安装${QIQI_PLAIN}"
                 fi
                 printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN} ${QIQI_WHITE}%s${QIQI_PLAIN} （%b）\n" "$i" "$PROJECT_NAME" "$status"
                 i=$((i + 1))
@@ -330,13 +314,13 @@ install_menu() {
             for id in "${custom_ids[@]}"; do
                 menu_no=$((991 + i))
                 load_project_meta "$id"
-                status="${QIQI_BLUE}自定义安装${QIQI_PLAIN}"
+                status="${QIQI_GREEN}已安装 / 进入管理${QIQI_PLAIN}"
                 printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN} ${QIQI_WHITE}%s${QIQI_PLAIN} （%b）\n" "$menu_no" "$PROJECT_NAME" "$status"
                 i=$((i + 1))
             done
         fi
         printf "  ${QIQI_GREEN}[ 99 ]${QIQI_PLAIN} 自定义项目上传说明\n"
-        printf "  ${QIQI_GRAY}[ 0 ]${QIQI_PLAIN} 返回主菜单\n"
+        printf "  ${QIQI_GREEN}[ 0 ]${QIQI_PLAIN} ${QIQI_WHITE}返回主菜单${QIQI_PLAIN}\n"
         echo
         readp "  请输入选项 → " choice
         case "$choice" in
@@ -371,7 +355,8 @@ manage_project_loop() {
         qiqi_menu_item "4" "更新项目（先备份）"
         qiqi_menu_item "5" "Nginx 反代设置"
         qiqi_menu_item "6" "手动更新 project.conf"
-        printf "  ${QIQI_GRAY}[ 0 ]${QIQI_PLAIN}  返回\n"
+        project_has_template "$id" && qiqi_menu_item "7" "重新安装（覆盖内置项目）"
+        qiqi_menu_item "0" "返回"
         echo
         readp "  请输入选项 → " choice
         case "$choice" in
@@ -381,6 +366,14 @@ manage_project_loop() {
             4) confirm_action "  确认更新 $id" && update_project "$id"; pause ;;
             5) "$SCRIPT_DIR/nginx_manage.sh" configure "$id"; pause ;;
             6) edit_project_conf_interactive "$id"; pause ;;
+            7)
+                if project_has_template "$id"; then
+                    reinstall_builtin_project "$id" && install_or_start_project "$id"
+                else
+                    red "当前项目没有内置模板，无法重新安装。"
+                fi
+                pause
+                ;;
             0) return 0 ;;
             *) red "无效选项。"; sleep 1 ;;
         esac

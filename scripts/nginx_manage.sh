@@ -47,13 +47,13 @@ select_template() {
     i=1
     for name in "${templates[@]}"; do
         if [ "$name" = "$preferred" ]; then
-            printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN} %s ${QIQI_GRAY}(%s, 默认)${QIQI_PLAIN}\n" "$i" "$name" "$(template_description "$name")"
+            printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN} %s ${QIQI_WHITE}(%s, 默认)${QIQI_PLAIN}\n" "$i" "$name" "$(template_description "$name")"
         else
-            printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN} %s ${QIQI_GRAY}(%s)${QIQI_PLAIN}\n" "$i" "$name" "$(template_description "$name")"
+            printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN} %s ${QIQI_WHITE}(%s)${QIQI_PLAIN}\n" "$i" "$name" "$(template_description "$name")"
         fi
         i=$((i + 1))
     done
-    printf "  ${QIQI_GRAY}[ 0 ]${QIQI_PLAIN} 返回\n"
+    printf "  ${QIQI_GREEN}[ 0 ]${QIQI_PLAIN} ${QIQI_WHITE}返回${QIQI_PLAIN}\n"
     echo
     readp "  请输入选项数字 → " choice
     if [ -z "$choice" ] && [ -n "$preferred" ]; then
@@ -83,11 +83,11 @@ select_project_or_custom() {
     i=1
     for id in "${ids[@]}"; do
         load_project_meta "$id"
-        printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN} %s ${QIQI_GRAY}(%s)${QIQI_PLAIN}\n" "$i" "$PROJECT_NAME" "$id"
+        printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN} %s ${QIQI_WHITE}(%s)${QIQI_PLAIN}\n" "$i" "$PROJECT_NAME" "$id"
         i=$((i + 1))
     done
     printf "  ${QIQI_GREEN}[ C ]${QIQI_PLAIN} 手动输入自定义反代\n"
-    printf "  ${QIQI_GRAY}[ 0 ]${QIQI_PLAIN} 返回\n"
+    printf "  ${QIQI_GREEN}[ 0 ]${QIQI_PLAIN} ${QIQI_WHITE}返回${QIQI_PLAIN}\n"
     echo
     readp "  请输入选项 → " choice
     case "$choice" in
@@ -222,7 +222,7 @@ configure_reverse_proxy() {
         echo
         qiqi_menu_item "1" "更新配置"
         qiqi_menu_item "2" "删除配置"
-        printf "  ${QIQI_GRAY}[ 0 ]${QIQI_PLAIN}  返回\n"
+        qiqi_menu_item "0" "返回"
         readp "  请输入选项 → " action
         case "$action" in
             1) ;;
@@ -315,7 +315,7 @@ delete_reverse_proxy_menu() {
         printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN} %s\n" "$i" "$file"
         i=$((i + 1))
     done
-    printf "  ${QIQI_GRAY}[ 0 ]${QIQI_PLAIN} 返回\n"
+    printf "  ${QIQI_GREEN}[ 0 ]${QIQI_PLAIN} ${QIQI_WHITE}返回${QIQI_PLAIN}\n"
     readp "  请输入选项数字 → " choice
     [ "$choice" = "0" ] && return 0
     case "$choice" in ''|*[!0-9]*) red "无效选项。"; return 1 ;; esac
@@ -346,7 +346,7 @@ show_nginx_status() {
     for file in "$nginx_dir"/conf.d/*.conf; do
         [ -f "$file" ] || continue
         found=1
-        printf "  ${QIQI_GREEN}⬥${QIQI_PLAIN} %s\n" "$file"
+        printf "  ${QIQI_GREEN}-${QIQI_PLAIN} %s\n" "$file"
     done
     [ "$found" -eq 0 ] && muted "  暂无 conf.d/*.conf"
 }
@@ -363,7 +363,7 @@ nginx_manage_main() {
         qiqi_menu_item "2" "删除反代配置"
         qiqi_menu_item "3" "测试并重载 Nginx"
         qiqi_menu_item "4" "刷新状态"
-        printf "  ${QIQI_GRAY}[ 0 ]${QIQI_PLAIN}  返回主菜单\n"
+        qiqi_menu_item "0" "返回主菜单"
         echo
         readp "  请输入选项 → " choice
         case "$choice" in
