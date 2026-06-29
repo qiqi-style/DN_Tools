@@ -35,16 +35,16 @@ docker/<project_id>/
 
 ## 一键安装
 
-上传到 GitHub 后，可以使用下面这种方式安装：
+项目地址：
+
+```text
+https://github.com/qiqi-style/DN_Tools
+```
+
+推荐使用下面这种方式一键安装：
 
 ```bash
 bash <(curl -sL https://raw.githubusercontent.com/qiqi-style/DN_Tools/main/install.sh)
-```
-
-如果你的仓库名最终是 `AI_Proxy_Tools`，则使用：
-
-```bash
-bash <(curl -sL https://raw.githubusercontent.com/qiqi-style/AI_Proxy_Tools/main/install.sh)
 ```
 
 非 root 用户可以使用：
