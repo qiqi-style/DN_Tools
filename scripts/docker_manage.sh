@@ -106,14 +106,10 @@ install_or_start_project() {
             muted "自定义项目请先准备 $target_path/docker-compose.yml。"
             return 1
         fi
-        mkdir -p "$TARGET_BASE_DIR"
-        mkdir -p "$target_path"
-        pink ">>> 正在复制模板到 $target_path"
-        cp -a "$source_path/." "$target_path/"
+        copy_builtin_project_to_app "$id" keep || return 1
     fi
 
     [ -f "$target_path/project.conf" ] || write_project_conf_defaults "$id" "$target_path/project.conf"
-    prepare_env_file "$target_path"
     confirm_no_placeholder_or_continue "$target_path" || {
         yellow "已取消启动。"
         return 1
@@ -150,7 +146,6 @@ restart_project() {
         return 1
     }
     path="$(app_project_path "$id")"
-    prepare_env_file "$path"
     confirm_no_placeholder_or_continue "$path" || {
         yellow "已取消启动。"
         return 1
@@ -257,7 +252,7 @@ EOF
 show_custom_project_help() {
     qiqi_section "自定义 Docker 项目"
     muted "请手动上传项目到: $TARGET_BASE_DIR/<项目ID>/docker-compose.yml"
-    muted "可选文件: project.conf、.env、Nginx 或应用自己的配置文件。"
+    muted "可选文件: project.conf、Nginx 或应用自己的配置文件。"
     muted "上传完成后重新进入 Docker 项目安装菜单，会以 991、992... 显示。"
 }
 
@@ -271,11 +266,40 @@ select_custom_project_by_choice() {
     id="${custom_ids[$index]}"
     target_path="$(app_project_path "$id")"
     [ -f "$target_path/project.conf" ] || write_project_conf_defaults "$id" "$target_path/project.conf"
-    manage_project_loop "$id"
+    install_or_start_project "$id"
+    pause
+}
+
+install_builtin_project_by_choice() {
+    local id="$1" choice target_path
+    target_path="$(app_project_path "$id")"
+
+    if project_is_installed "$id"; then
+        load_project_meta "$id"
+        qiqi_section "$PROJECT_NAME"
+        muted "检测到项目目录: $target_path"
+        qiqi_menu_item "1" "直接安装 / 启动现有项目"
+        qiqi_menu_item "2" "重新安装（从内置项目覆盖复制）"
+        printf "  ${QIQI_GRAY}[ 0 ]${QIQI_PLAIN} 返回\n"
+        echo
+        readp "  请输入选项 [1] → " choice
+        case "${choice:-1}" in
+            1) install_or_start_project "$id" ;;
+            2) reinstall_builtin_project "$id" && install_or_start_project "$id" ;;
+            0) return 0 ;;
+            *) red "无效选项。" ;;
+        esac
+        pause
+        return 0
+    fi
+
+    install_or_start_project "$id"
+    pause
 }
 
 install_menu() {
-    local builtin_ids=() custom_ids=() id i choice status label menu_no
+    local builtin_ids=() custom_ids=() id i choice status menu_no
+    sync_builtin_projects_to_app
     while true; do
         array_from_lines builtin_ids "$(list_source_project_ids)"
         array_from_lines custom_ids "$(list_custom_app_project_ids)"
@@ -290,13 +314,11 @@ install_menu() {
             for id in "${builtin_ids[@]}"; do
                 load_project_meta "$id"
                 if project_is_installed "$id"; then
-                    status="${QIQI_GREEN}已安装${QIQI_PLAIN}"
-                    label="进入管理"
+                    status="${QIQI_BLUE}已在 /app${QIQI_PLAIN}"
                 else
                     status="${QIQI_GRAY}未安装${QIQI_PLAIN}"
-                    label="安装"
                 fi
-                printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN} %s ${QIQI_GRAY}(%s)${QIQI_PLAIN} - %b / %s\n" "$i" "$PROJECT_NAME" "$id" "$status" "$label"
+                printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN} ${QIQI_WHITE}%s${QIQI_PLAIN} （%b）\n" "$i" "$PROJECT_NAME" "$status"
                 i=$((i + 1))
             done
         fi
@@ -309,7 +331,8 @@ install_menu() {
             for id in "${custom_ids[@]}"; do
                 menu_no=$((991 + i))
                 load_project_meta "$id"
-                printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN} %s ${QIQI_GRAY}(%s)${QIQI_PLAIN} - ${QIQI_GREEN}已在 /app 准备好${QIQI_PLAIN} / 进入管理\n" "$menu_no" "$PROJECT_NAME" "$id"
+                status="${QIQI_BLUE}自定义安装${QIQI_PLAIN}"
+                printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN} ${QIQI_WHITE}%s${QIQI_PLAIN} （%b）\n" "$menu_no" "$PROJECT_NAME" "$status"
                 i=$((i + 1))
             done
         fi
@@ -324,12 +347,7 @@ install_menu() {
             *)
                 if [ "$choice" -ge 1 ] 2>/dev/null && [ "$choice" -le "${#builtin_ids[@]}" ] 2>/dev/null; then
                     id="${builtin_ids[$((choice - 1))]}"
-                    if project_is_installed "$id"; then
-                        manage_project_loop "$id"
-                    else
-                        install_or_start_project "$id"
-                        pause
-                    fi
+                    install_builtin_project_by_choice "$id"
                 elif [ "$choice" -ge 991 ] 2>/dev/null && [ "$choice" -le $((990 + ${#custom_ids[@]})) ] 2>/dev/null; then
                     select_custom_project_by_choice "$choice"
                 else

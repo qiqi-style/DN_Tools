@@ -199,15 +199,16 @@ if qiqi_color_enabled; then
             QIQI_GREEN="$(qiqi_ansi_256 118)"
             QIQI_GREEN_2="$(qiqi_ansi_256 157)"
             QIQI_ORANGE="$(qiqi_ansi_256 208)"
-            QIQI_CYAN='\033[1;36m'
-            QIQI_GRAY="$(qiqi_ansi_256 245)"
-            QIQI_WHITE='\033[1;37m'
-            QIQI_RED="$(qiqi_ansi_256 211)"
+            QIQI_CYAN="$(qiqi_ansi_256 81)"
+            QIQI_BLUE="$(qiqi_ansi_256 75)"
+            QIQI_GRAY="$(qiqi_ansi_256 250)"
+            QIQI_WHITE="$(qiqi_ansi_256 255)"
+            QIQI_RED="$(qiqi_ansi_256 203)"
             QIQI_LOGO_1="$(qiqi_ansi_256 211)"
-            QIQI_LOGO_2="$(qiqi_ansi_256 212)"
-            QIQI_LOGO_3="$(qiqi_ansi_256 213)"
+            QIQI_LOGO_2="$(qiqi_ansi_256 213)"
+            QIQI_LOGO_3="$(qiqi_ansi_256 214)"
             QIQI_LOGO_4="$(qiqi_ansi_256 118)"
-            QIQI_LOGO_5="$(qiqi_ansi_256 119)"
+            QIQI_LOGO_5="$(qiqi_ansi_256 120)"
             QIQI_LOGO_6="$(qiqi_ansi_256 157)"
             ;;
         light)
@@ -217,6 +218,7 @@ if qiqi_color_enabled; then
             QIQI_GREEN_2="$(qiqi_ansi_256 34)"
             QIQI_ORANGE="$(qiqi_ansi_256 130)"
             QIQI_CYAN="$(qiqi_ansi_256 25)"
+            QIQI_BLUE="$(qiqi_ansi_256 25)"
             QIQI_GRAY="$(qiqi_ansi_256 240)"
             QIQI_WHITE="$(qiqi_ansi_256 235)"
             QIQI_RED="$(qiqi_ansi_256 124)"
@@ -235,6 +237,7 @@ if qiqi_color_enabled; then
             QIQI_GREEN_2="$(qiqi_ansi_256 35)"
             QIQI_ORANGE="$(qiqi_ansi_256 166)"
             QIQI_CYAN="$(qiqi_ansi_256 31)"
+            QIQI_BLUE="$(qiqi_ansi_256 31)"
             QIQI_GRAY="$(qiqi_ansi_256 244)"
             QIQI_WHITE="$(qiqi_ansi_256 245)"
             QIQI_RED="$(qiqi_ansi_256 160)"
@@ -253,6 +256,7 @@ else
     QIQI_GREEN_2=''
     QIQI_ORANGE=''
     QIQI_CYAN=''
+    QIQI_BLUE=''
     QIQI_GRAY=''
     QIQI_WHITE=''
     QIQI_RED=''
@@ -271,6 +275,7 @@ fi
 # - 绿色：成功状态、可执行菜单编号、健康服务
 # - 橙色：警告、默认值、需要注意的配置
 # - 青色：项目名、模块名、重点信息
+# - 蓝色：已安装/可管理状态、主动状态标记
 # - 灰色：次要说明、未配置状态、辅助文本
 # - 红色：错误、危险操作
 
@@ -279,6 +284,7 @@ green(){ printf "${QIQI_GREEN}%s${QIQI_PLAIN}\n" "$1"; }
 yellow(){ printf "${QIQI_ORANGE}%s${QIQI_PLAIN}\n" "$1"; }
 red(){ printf "${QIQI_RED}%s${QIQI_PLAIN}\n" "$1"; }
 cyan(){ printf "${QIQI_CYAN}%s${QIQI_PLAIN}\n" "$1"; }
+blue(){ printf "${QIQI_BLUE}%s${QIQI_PLAIN}\n" "$1"; }
 muted(){ printf "${QIQI_GRAY}%s${QIQI_PLAIN}\n" "$1"; }
 
 readp() {

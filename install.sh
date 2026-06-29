@@ -83,6 +83,13 @@ fi
 pink ">>> 正在配置脚本权限"
 chmod +x "$INSTALL_DIR/start.sh" "$INSTALL_DIR/install.sh" "$INSTALL_DIR"/scripts/*.sh
 
+if [ -f "$INSTALL_DIR/scripts/common.sh" ]; then
+    # shellcheck source=scripts/common.sh
+    . "$INSTALL_DIR/scripts/common.sh"
+    pink ">>> 正在同步内置 Docker 项目到 ${TARGET_BASE_DIR:-/app}"
+    sync_builtin_projects_to_app
+fi
+
 write_launcher() {
     local path="$1"
     cat > "$path" << EOF

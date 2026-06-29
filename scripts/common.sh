@@ -13,6 +13,7 @@ else
     QIQI_GREEN='\033[38;5;34m'
     QIQI_ORANGE='\033[38;5;166m'
     QIQI_CYAN='\033[38;5;31m'
+    QIQI_BLUE='\033[38;5;31m'
     QIQI_GRAY='\033[38;5;244m'
     QIQI_WHITE='\033[38;5;245m'
     QIQI_RED='\033[38;5;160m'
@@ -22,6 +23,7 @@ else
     yellow(){ printf "${QIQI_ORANGE}%s${QIQI_PLAIN}\n" "$1"; }
     red(){ printf "${QIQI_RED}%s${QIQI_PLAIN}\n" "$1"; }
     cyan(){ printf "${QIQI_CYAN}%s${QIQI_PLAIN}\n" "$1"; }
+    blue(){ printf "${QIQI_BLUE}%s${QIQI_PLAIN}\n" "$1"; }
     muted(){ printf "${QIQI_GRAY}%s${QIQI_PLAIN}\n" "$1"; }
     readp(){ local prompt="$1" __var="$2"; IFS='' read -r -p "$prompt" "$__var"; }
     pause(){ local _x; readp "按回车键继续..." _x; }
@@ -301,6 +303,65 @@ collect_installed_ids() {
     done < <(list_project_ids)
 }
 
+copy_builtin_project_to_app() {
+    local id="$1" mode="${2:-keep}" source_path target_path
+    source_path="$(source_project_path "$id")"
+    target_path="$(app_project_path "$id")"
+
+    if [ ! -f "$source_path/docker-compose.yml" ]; then
+        red "未找到内置项目: $source_path/docker-compose.yml"
+        return 1
+    fi
+
+    if [ -e "$target_path" ]; then
+        if [ "$mode" != "replace" ]; then
+            if [ -f "$target_path/docker-compose.yml" ]; then
+                muted ">>> $target_path 已存在，保留现有项目。"
+                return 0
+            fi
+            yellow ">>> $target_path 已存在但不是 Docker Compose 项目，已跳过。"
+            return 1
+        fi
+        rm -rf "$target_path"
+    fi
+
+    mkdir -p "$TARGET_BASE_DIR" || return 1
+    mkdir -p "$target_path" || return 1
+    pink ">>> 正在复制内置项目到 $target_path"
+    cp -a "$source_path/." "$target_path/" || return 1
+    [ -f "$target_path/project.conf" ] || write_project_conf_defaults "$id" "$target_path/project.conf"
+}
+
+sync_builtin_projects_to_app() {
+    local id found=0
+    while IFS= read -r id; do
+        [ -n "$id" ] || continue
+        if [ "$found" -eq 0 ]; then
+            mkdir -p "$TARGET_BASE_DIR" || return 1
+            found=1
+        fi
+        copy_builtin_project_to_app "$id" keep || true
+    done < <(list_source_project_ids)
+}
+
+reinstall_builtin_project() {
+    local id="$1" target_path
+    target_path="$(app_project_path "$id")"
+
+    project_has_template "$id" || {
+        red "未找到内置模板: $(source_project_path "$id")/docker-compose.yml"
+        return 1
+    }
+
+    if [ -d "$target_path" ]; then
+        red "重新安装会覆盖项目目录: $target_path"
+        confirm_action "  确认重新安装 $id" || return 1
+        backup_project_dir "$id" || return 1
+    fi
+
+    copy_builtin_project_to_app "$id" replace
+}
+
 compose_cmd_available() {
     docker compose version >/dev/null 2>&1 || command_exists docker-compose
 }
@@ -369,7 +430,7 @@ check_url() {
     if curl -fsS --connect-timeout 3 --max-time 5 "$url" >/dev/null 2>&1; then
         printf "${QIQI_GREEN}[连通]${QIQI_PLAIN}"
     else
-        printf "${QIQI_PINK}[不可达]${QIQI_PLAIN}"
+        printf "${QIQI_RED}[不可达]${QIQI_PLAIN}"
     fi
 }
 
@@ -411,23 +472,11 @@ project_running_status() {
     ids="$(compose_run "$path" ps -q 2>/dev/null || true)"
     running="$(compose_run "$path" ps --status running -q 2>/dev/null || true)"
     if [ -z "$ids" ]; then
-        printf "${QIQI_PINK}已停止${QIQI_PLAIN}"
+        printf "${QIQI_RED}已停止${QIQI_PLAIN}"
     elif [ -n "$running" ]; then
         printf "${QIQI_GREEN}运行中${QIQI_PLAIN}"
     else
         printf "${QIQI_ORANGE}未完全运行${QIQI_PLAIN}"
-    fi
-}
-
-prepare_env_file() {
-    local path="$1"
-    if [ ! -f "$path/.env" ] && [ -f "$path/.env.example" ]; then
-        cp "$path/.env.example" "$path/.env"
-        if grep -q 'DN_TOOLS_CHANGE_ME' "$path/.env"; then
-            yellow "已生成 $path/.env，请先替换其中的 DN_TOOLS_CHANGE_ME 占位值。"
-        else
-            green "已生成 $path/.env。"
-        fi
     fi
 }
 

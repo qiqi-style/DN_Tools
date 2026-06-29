@@ -1,5 +1,5 @@
 {
-  "auth-key": "DN_TOOLS_CHANGE_ME_AUTH_KEY",
+  "auth-key": "123456",
   "refresh_account_interval_minute": 60,
   "image_retention_days": 15,
   "auto_remove_rate_limited_accounts": false,
