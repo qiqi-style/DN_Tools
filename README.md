@@ -160,6 +160,14 @@ sudo ./start.sh
 /app/<project_id>/nginx-config/<project_id>.conf
 ```
 
+如果该文件已存在，会先把旧配置压缩备份到：
+
+```text
+/app/<project_id>/nginx-config/backups/<project_id>-nginx-YYYYmmdd-HHMMSS.tar.gz
+```
+
+同一项目最多保留最近 3 份 Nginx 配置压缩备份，当前配置文件会直接覆盖为最新内容。
+
 并回写：
 
 ```bash

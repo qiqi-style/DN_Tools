@@ -146,17 +146,32 @@ public_url_from_domain() {
 }
 
 backup_nginx_conf_to_project() {
-    local id="$1" conf_file="$2" backup_base backup_dir
-    if project_is_installed "$id"; then
-        backup_base="$(app_project_path "$id")"
-    else
-        backup_base="$(project_runtime_path "$id")"
-    fi
-    [ -d "$backup_base" ] || return 0
+    local id="$1" conf_file="$2" backup_base backup_dir archive_dir archive_file timestamp
+    local current_file count file
+    backup_base="$(app_project_path "$id")"
     backup_dir="$backup_base/nginx-config"
-    mkdir -p "$backup_dir"
-    cp "$conf_file" "$backup_dir/$id.conf"
-    green "已备份反代配置到: $backup_dir/$id.conf"
+    archive_dir="$backup_dir/backups"
+    current_file="$backup_dir/$id.conf"
+    mkdir -p "$archive_dir" || return 1
+
+    if [ -f "$current_file" ]; then
+        timestamp="$(date +"%Y%m%d-%H%M%S")"
+        archive_file="$archive_dir/${id}-nginx-${timestamp}.tar.gz"
+        tar -zcf "$archive_file" -C "$backup_dir" "$(basename "$current_file")" || return 1
+        green "已压缩备份旧反代配置: $archive_file"
+    fi
+
+    cp "$conf_file" "$current_file" || return 1
+
+    count=0
+    for file in $(ls -t "$archive_dir"/"$id"-nginx-*.tar.gz 2>/dev/null); do
+        count=$((count + 1))
+        if [ "$count" -gt 3 ]; then
+            rm -f "$file"
+        fi
+    done
+
+    green "已同步反代配置到: $current_file"
 }
 
 record_nginx_project_meta() {
@@ -286,8 +301,8 @@ configure_reverse_proxy() {
     rm -f "$tmp_file"
 
     public_url="$(public_url_from_domain "$domain" "$listen_port")"
+    backup_nginx_conf_to_project "$id" "$out_file" || return 1
     record_nginx_project_meta "$id" "$SELECTED_TEMPLATE" "$public_url"
-    backup_nginx_conf_to_project "$id" "$out_file"
     green "配置已写入: $out_file"
     green "公网地址已记录: $public_url"
     ensure_nginx_include "$nginx_dir" || return 1
