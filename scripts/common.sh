@@ -8,16 +8,19 @@ if [ -f "$TOOL_ROOT/theme.sh" ]; then
     # shellcheck source=../theme.sh
     . "$TOOL_ROOT/theme.sh"
 else
-    QIQI_PINK='\033[38;5;211m'
-    QIQI_GREEN='\033[38;5;118m'
-    QIQI_ORANGE='\033[38;5;208m'
-    QIQI_CYAN='\033[1;36m'
-    QIQI_GRAY='\033[38;5;245m'
+    # theme.sh 是可选增强。缺失时使用高对比 fallback，确保脚本仍可运行。
+    QIQI_PINK='\033[38;5;161m'
+    QIQI_GREEN='\033[38;5;34m'
+    QIQI_ORANGE='\033[38;5;166m'
+    QIQI_CYAN='\033[38;5;31m'
+    QIQI_GRAY='\033[38;5;244m'
+    QIQI_WHITE='\033[38;5;245m'
+    QIQI_RED='\033[38;5;160m'
     QIQI_PLAIN='\033[0m'
     pink(){ printf "${QIQI_PINK}%s${QIQI_PLAIN}\n" "$1"; }
     green(){ printf "${QIQI_GREEN}%s${QIQI_PLAIN}\n" "$1"; }
     yellow(){ printf "${QIQI_ORANGE}%s${QIQI_PLAIN}\n" "$1"; }
-    red(){ printf "${QIQI_PINK}%s${QIQI_PLAIN}\n" "$1"; }
+    red(){ printf "${QIQI_RED}%s${QIQI_PLAIN}\n" "$1"; }
     cyan(){ printf "${QIQI_CYAN}%s${QIQI_PLAIN}\n" "$1"; }
     muted(){ printf "${QIQI_GRAY}%s${QIQI_PLAIN}\n" "$1"; }
     readp(){ local prompt="$1" __var="$2"; IFS='' read -r -p "$prompt" "$__var"; }

@@ -11,14 +11,16 @@ if [ -f "$SOURCE_DIR/theme.sh" ]; then
     # shellcheck source=theme.sh
     . "$SOURCE_DIR/theme.sh"
 else
-    QIQI_PINK='\033[38;5;211m'
-    QIQI_GREEN='\033[38;5;118m'
-    QIQI_ORANGE='\033[38;5;208m'
+    # theme.sh 是可选增强。缺失时使用高对比 fallback，确保安装脚本仍可运行。
+    QIQI_PINK='\033[38;5;161m'
+    QIQI_GREEN='\033[38;5;34m'
+    QIQI_ORANGE='\033[38;5;166m'
+    QIQI_RED='\033[38;5;160m'
     QIQI_PLAIN='\033[0m'
     pink(){ printf "${QIQI_PINK}%s${QIQI_PLAIN}\n" "$1"; }
     green(){ printf "${QIQI_GREEN}%s${QIQI_PLAIN}\n" "$1"; }
     yellow(){ printf "${QIQI_ORANGE}%s${QIQI_PLAIN}\n" "$1"; }
-    red(){ printf "${QIQI_PINK}%s${QIQI_PLAIN}\n" "$1"; }
+    red(){ printf "${QIQI_RED}%s${QIQI_PLAIN}\n" "$1"; }
     qiqi_line(){ printf "${QIQI_PINK}%s${QIQI_PLAIN}\n" "────────────────────────────────────────────────────────"; }
 fi
 
@@ -81,7 +83,8 @@ else
 fi
 
 pink ">>> 正在配置脚本权限"
-chmod +x "$INSTALL_DIR/start.sh" "$INSTALL_DIR/install.sh" "$INSTALL_DIR/theme.sh" "$INSTALL_DIR"/scripts/*.sh
+chmod +x "$INSTALL_DIR/start.sh" "$INSTALL_DIR/install.sh" "$INSTALL_DIR"/scripts/*.sh
+[ -f "$INSTALL_DIR/theme.sh" ] && chmod +x "$INSTALL_DIR/theme.sh"
 
 write_launcher() {
     local path="$1"
