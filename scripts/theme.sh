@@ -27,7 +27,7 @@ export LANG=en_US.UTF-8
 #
 # 主题模式：
 #
-#   QIQI_THEME_MODE=auto     # 默认。优先查询终端背景色，其次读取 COLORFGBG，最后使用 contrast。
+#   QIQI_THEME_MODE=auto     # 默认。读取 COLORFGBG，无法判断时使用 contrast。
 #   QIQI_THEME_MODE=contrast # 高对比配色，浅色/暗色背景都尽量清楚。
 #   QIQI_THEME_MODE=light    # 明色终端背景，使用更深的绿色/青色/粉色。
 #   QIQI_THEME_MODE=dark     # 暗色终端背景，使用更亮的霓虹色。
@@ -35,7 +35,7 @@ export LANG=en_US.UTF-8
 #
 # 自动检测微调：
 #
-#   QIQI_THEME_AUTO_QUERY=0  # 禁用 OSC 11 背景色查询，只使用 COLORFGBG/contrast 兜底。
+#   QIQI_THEME_AUTO_QUERY=1  # 启用 OSC 11 背景色查询；部分终端可能把响应泄漏到输入提示。
 #   QIQI_LIGHT_BG_THRESHOLD=160 # 背景亮度阈值，数值越低越容易判定为明色背景。
 #
 # 关闭颜色：
@@ -54,7 +54,7 @@ QIQI_YOUTUBE_URL="${QIQI_YOUTUBE_URL:-https://www.youtube.com/@qiqi-style}"
 QIQI_BLOG_URL="${QIQI_BLOG_URL:-https://qiaiai.xyz}"
 QIQI_THEME_MODE="${QIQI_THEME_MODE:-auto}"
 QIQI_BANNER_STYLE="${QIQI_BANNER_STYLE:-full}"
-QIQI_THEME_AUTO_QUERY="${QIQI_THEME_AUTO_QUERY:-1}"
+QIQI_THEME_AUTO_QUERY="${QIQI_THEME_AUTO_QUERY:-0}"
 QIQI_LIGHT_BG_THRESHOLD="${QIQI_LIGHT_BG_THRESHOLD:-160}"
 
 qiqi_color_enabled() {
@@ -149,10 +149,11 @@ qiqi_detect_theme_mode() {
         light|dark|contrast|plain|none) printf '%s' "$mode"; return 0 ;;
     esac
 
-    # 交互终端优先使用 OSC 11 查询真实背景色：
+    # 可选使用 OSC 11 查询真实背景色：
     #   request : ESC ] 11 ; ? ESC \
     #   response: ESC ] 11 ; rgb:RRRR/GGGG/BBBB BEL
-    # 终端不支持、非交互环境或读取超时时，会自动降级到 COLORFGBG。
+    # 部分终端会延迟返回响应，导致控制序列泄漏到后续 readp 输入提示；
+    # 因此默认关闭，只在 QIQI_THEME_AUTO_QUERY=1 时启用。
     queried="$(qiqi_query_terminal_theme 2>/dev/null)" || queried=""
     if [ -n "$queried" ]; then
         printf '%s' "$queried"
