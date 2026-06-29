@@ -381,13 +381,39 @@ manage_project_loop() {
 }
 
 manage_menu() {
-    local ids=()
-    array_from_lines ids "$(collect_installed_ids)"
-    if [ "${#ids[@]}" -eq 0 ]; then
-        yellow "没有已安装项目可管理。"
-        return 0
-    fi
-    select_project_from_ids "选择要管理的项目" "${ids[@]}" && manage_project_loop "$SELECTED_PROJECT_ID"
+    local ids=() id i choice
+    while true; do
+        array_from_lines ids "$(collect_installed_ids)"
+        clear
+        qiqi_banner "$PROJECT_TITLE" "$PROJECT_VERSION" "Docker 项目管理" "$PROJECT_URL"
+        qiqi_section "管理菜单"
+        if [ "${#ids[@]}" -eq 0 ]; then
+            yellow "  没有已安装项目可管理。"
+        else
+            i=1
+            for id in "${ids[@]}"; do
+                load_project_meta "$id"
+                printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN} ${QIQI_WHITE}%s${QIQI_PLAIN} ${QIQI_WHITE}(%s)${QIQI_PLAIN} | %b\n" "$i" "$PROJECT_NAME" "$id" "$(project_running_status "$id")"
+                i=$((i + 1))
+            done
+        fi
+        qiqi_menu_item "0" "返回主菜单"
+        echo
+        readp "  请输入选项 → " choice
+        case "$choice" in
+            0) return 0 ;;
+            ''|*[!0-9]*) red "无效选项。"; sleep 1 ;;
+            *)
+                if [ "$choice" -ge 1 ] 2>/dev/null && [ "$choice" -le "${#ids[@]}" ] 2>/dev/null; then
+                    id="${ids[$((choice - 1))]}"
+                    manage_project_loop "$id"
+                else
+                    red "无效选项。"
+                    sleep 1
+                fi
+                ;;
+        esac
+    done
 }
 
 main() {

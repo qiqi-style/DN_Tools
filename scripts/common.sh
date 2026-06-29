@@ -9,6 +9,9 @@ if [ -f "$COMMON_DIR/theme.sh" ]; then
     . "$COMMON_DIR/theme.sh"
 else
     # theme.sh 是可选增强。缺失时使用高对比 fallback，确保脚本仍可运行。
+    QIQI_GITHUB_URL="${QIQI_GITHUB_URL:-https://github.com/qiqi-style}"
+    QIQI_YOUTUBE_URL="${QIQI_YOUTUBE_URL:-https://www.youtube.com/@qiqi-style}"
+    QIQI_BLOG_URL="${QIQI_BLOG_URL:-https://qiaiai.xyz}"
     QIQI_PINK='\033[38;5;161m'
     QIQI_GREEN='\033[38;5;34m'
     QIQI_ORANGE='\033[38;5;166m'
@@ -27,9 +30,15 @@ else
     muted(){ printf "${QIQI_GRAY}%s${QIQI_PLAIN}\n" "$1"; }
     readp(){ local prompt="$1" __var="$2"; IFS='' read -r -p "$prompt" "$__var"; }
     pause(){ local _x; readp "按回车键继续..." _x; }
-    qiqi_section(){ printf "\n${QIQI_PINK}--------------------- %s ---------------------${QIQI_PLAIN}\n" "$1"; }
+    qiqi_section(){ printf "\n${QIQI_PINK}───────────────────── %s ─────────────────────${QIQI_PLAIN}\n" "$1"; }
     qiqi_menu_item(){ printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN}  %s\n" "$1" "$2"; }
-    qiqi_banner(){ printf "\n${QIQI_CYAN}%s${QIQI_PLAIN} %s\n%s\n" "$1" "$2" "$3"; }
+    qiqi_banner(){
+        printf "\n${QIQI_CYAN}%s${QIQI_PLAIN} %s\n%s\n" "$1" "$2" "$3"
+        printf "  ${QIQI_GREEN}⬥ qiqi Github   :${QIQI_PLAIN}  %s\n" "$QIQI_GITHUB_URL"
+        printf "  ${QIQI_GREEN}⬥ qiqi YouTube  :${QIQI_PLAIN}  %s\n" "$QIQI_YOUTUBE_URL"
+        printf "  ${QIQI_GREEN}⬥ qiqi 博客     :${QIQI_PLAIN}  %s\n" "$QIQI_BLOG_URL"
+        printf "  项目地址：${QIQI_CYAN}%s${QIQI_PLAIN}\n" "${4:-https://github.com/qiqi-style/DN_Tools}"
+    }
 fi
 
 PROJECT_TITLE="${PROJECT_TITLE:-DN_Tools}"

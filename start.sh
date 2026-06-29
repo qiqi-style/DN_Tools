@@ -61,7 +61,6 @@ main_menu() {
                     pause
                 else
                     "$BASE_DIR/scripts/docker_manage.sh" manage
-                    pause
                 fi
                 ;;
             3)

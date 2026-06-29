@@ -53,10 +53,11 @@ QIQI_GITHUB_URL="${QIQI_GITHUB_URL:-https://github.com/qiqi-style}"
 QIQI_YOUTUBE_URL="${QIQI_YOUTUBE_URL:-https://www.youtube.com/@qiqi-style}"
 QIQI_BLOG_URL="${QIQI_BLOG_URL:-https://qiaiai.xyz}"
 QIQI_THEME_MODE="${QIQI_THEME_MODE:-auto}"
-QIQI_BANNER_STYLE="${QIQI_BANNER_STYLE:-compact}"
+QIQI_BANNER_STYLE="${QIQI_BANNER_STYLE:-full}"
 QIQI_THEME_AUTO_QUERY="${QIQI_THEME_AUTO_QUERY:-1}"
 QIQI_LIGHT_BG_THRESHOLD="${QIQI_LIGHT_BG_THRESHOLD:-160}"
 QIQI_OSC_QUERY_SENT=0
+QIQI_THEME_LOADED=1
 
 qiqi_color_enabled() {
     [ -z "${NO_COLOR:-}" ] || return 1
@@ -215,89 +216,98 @@ qiqi_ansi_bold() {
     fi
 }
 
-QIQI_EFFECTIVE_THEME="$(qiqi_detect_theme_mode)"
+qiqi_apply_theme() {
+    QIQI_EFFECTIVE_THEME="$(qiqi_detect_theme_mode)"
 
-if qiqi_color_enabled; then
-    QIQI_PLAIN='\033[0m'
-    QIQI_BOLD=''
+    if qiqi_color_enabled; then
+        QIQI_PLAIN='\033[0m'
+        QIQI_BOLD=''
 
-    case "$QIQI_EFFECTIVE_THEME" in
-        dark)
-            QIQI_PINK="$(qiqi_ansi_256 211)"
-            QIQI_PINK_2="$(qiqi_ansi_256 213)"
-            QIQI_GREEN="$(qiqi_ansi_256 118)"
-            QIQI_GREEN_2="$(qiqi_ansi_256 157)"
-            QIQI_ORANGE="$(qiqi_ansi_256 208)"
-            QIQI_CYAN="$(qiqi_ansi_256 81)"
-            QIQI_BLUE="$(qiqi_ansi_256 75)"
-            QIQI_GRAY="$(qiqi_ansi_256 250)"
-            QIQI_WHITE="$(qiqi_ansi_256 255)"
-            QIQI_RED="$(qiqi_ansi_256 203)"
-            QIQI_LOGO_1="$(qiqi_ansi_256 211)"
-            QIQI_LOGO_2="$(qiqi_ansi_256 213)"
-            QIQI_LOGO_3="$(qiqi_ansi_256 214)"
-            QIQI_LOGO_4="$(qiqi_ansi_256 118)"
-            QIQI_LOGO_5="$(qiqi_ansi_256 120)"
-            QIQI_LOGO_6="$(qiqi_ansi_256 157)"
-            ;;
-        light)
-            QIQI_PINK="$(qiqi_ansi_256 161)"
-            QIQI_PINK_2="$(qiqi_ansi_256 162)"
-            QIQI_GREEN="$(qiqi_ansi_256 28)"
-            QIQI_GREEN_2="$(qiqi_ansi_256 34)"
-            QIQI_ORANGE="$(qiqi_ansi_256 130)"
-            QIQI_CYAN="$(qiqi_ansi_256 25)"
-            QIQI_BLUE="$(qiqi_ansi_256 25)"
-            QIQI_GRAY="$(qiqi_ansi_256 240)"
-            QIQI_WHITE="$(qiqi_ansi_256 16)"
-            QIQI_RED="$(qiqi_ansi_256 124)"
-            QIQI_LOGO_1="$(qiqi_ansi_256 161)"
-            QIQI_LOGO_2="$(qiqi_ansi_256 162)"
-            QIQI_LOGO_3="$(qiqi_ansi_256 166)"
-            QIQI_LOGO_4="$(qiqi_ansi_256 28)"
-            QIQI_LOGO_5="$(qiqi_ansi_256 34)"
-            QIQI_LOGO_6="$(qiqi_ansi_256 30)"
-            ;;
-        *)
-            # 默认高对比方案：不用荧光绿/纯白，避免浅色主题下文字发糊。
-            QIQI_PINK="$(qiqi_ansi_256 161)"
-            QIQI_PINK_2="$(qiqi_ansi_256 162)"
-            QIQI_GREEN="$(qiqi_ansi_256 34)"
-            QIQI_GREEN_2="$(qiqi_ansi_256 35)"
-            QIQI_ORANGE="$(qiqi_ansi_256 166)"
-            QIQI_CYAN="$(qiqi_ansi_256 31)"
-            QIQI_BLUE="$(qiqi_ansi_256 31)"
-            QIQI_GRAY="$(qiqi_ansi_256 244)"
-            QIQI_WHITE=''
-            QIQI_RED="$(qiqi_ansi_256 160)"
-            QIQI_LOGO_1="$(qiqi_ansi_256 161)"
-            QIQI_LOGO_2="$(qiqi_ansi_256 162)"
-            QIQI_LOGO_3="$(qiqi_ansi_256 166)"
-            QIQI_LOGO_4="$(qiqi_ansi_256 34)"
-            QIQI_LOGO_5="$(qiqi_ansi_256 35)"
-            QIQI_LOGO_6="$(qiqi_ansi_256 37)"
-            ;;
-    esac
-else
-    QIQI_PINK=''
-    QIQI_PINK_2=''
-    QIQI_GREEN=''
-    QIQI_GREEN_2=''
-    QIQI_ORANGE=''
-    QIQI_CYAN=''
-    QIQI_BLUE=''
-    QIQI_GRAY=''
-    QIQI_WHITE=''
-    QIQI_RED=''
-    QIQI_PLAIN=''
-    QIQI_BOLD=''
-    QIQI_LOGO_1=''
-    QIQI_LOGO_2=''
-    QIQI_LOGO_3=''
-    QIQI_LOGO_4=''
-    QIQI_LOGO_5=''
-    QIQI_LOGO_6=''
-fi
+        case "$QIQI_EFFECTIVE_THEME" in
+            dark)
+                QIQI_PINK="$(qiqi_ansi_256 211)"
+                QIQI_PINK_2="$(qiqi_ansi_256 213)"
+                QIQI_GREEN="$(qiqi_ansi_256 118)"
+                QIQI_GREEN_2="$(qiqi_ansi_256 157)"
+                QIQI_ORANGE="$(qiqi_ansi_256 208)"
+                QIQI_CYAN="$(qiqi_ansi_256 81)"
+                QIQI_BLUE="$(qiqi_ansi_256 75)"
+                QIQI_GRAY="$(qiqi_ansi_256 250)"
+                QIQI_WHITE="$(qiqi_ansi_256 255)"
+                QIQI_RED="$(qiqi_ansi_256 203)"
+                QIQI_LOGO_1="$(qiqi_ansi_256 211)"
+                QIQI_LOGO_2="$(qiqi_ansi_256 213)"
+                QIQI_LOGO_3="$(qiqi_ansi_256 214)"
+                QIQI_LOGO_4="$(qiqi_ansi_256 118)"
+                QIQI_LOGO_5="$(qiqi_ansi_256 120)"
+                QIQI_LOGO_6="$(qiqi_ansi_256 157)"
+                ;;
+            light)
+                QIQI_PINK="$(qiqi_ansi_256 161)"
+                QIQI_PINK_2="$(qiqi_ansi_256 162)"
+                QIQI_GREEN="$(qiqi_ansi_256 28)"
+                QIQI_GREEN_2="$(qiqi_ansi_256 34)"
+                QIQI_ORANGE="$(qiqi_ansi_256 130)"
+                QIQI_CYAN="$(qiqi_ansi_256 25)"
+                QIQI_BLUE="$(qiqi_ansi_256 25)"
+                QIQI_GRAY="$(qiqi_ansi_256 240)"
+                QIQI_WHITE="$(qiqi_ansi_256 16)"
+                QIQI_RED="$(qiqi_ansi_256 124)"
+                QIQI_LOGO_1="$(qiqi_ansi_256 161)"
+                QIQI_LOGO_2="$(qiqi_ansi_256 162)"
+                QIQI_LOGO_3="$(qiqi_ansi_256 166)"
+                QIQI_LOGO_4="$(qiqi_ansi_256 28)"
+                QIQI_LOGO_5="$(qiqi_ansi_256 34)"
+                QIQI_LOGO_6="$(qiqi_ansi_256 30)"
+                ;;
+            *)
+                # 默认高对比方案尽量使用终端默认前景色，避免背景切换后文字同色。
+                QIQI_PINK="$(qiqi_ansi_256 161)"
+                QIQI_PINK_2="$(qiqi_ansi_256 162)"
+                QIQI_GREEN="$(qiqi_ansi_256 34)"
+                QIQI_GREEN_2="$(qiqi_ansi_256 35)"
+                QIQI_ORANGE="$(qiqi_ansi_256 166)"
+                QIQI_CYAN="$(qiqi_ansi_256 31)"
+                QIQI_BLUE="$(qiqi_ansi_256 31)"
+                QIQI_GRAY="$(qiqi_ansi_256 244)"
+                QIQI_WHITE=''
+                QIQI_RED="$(qiqi_ansi_256 160)"
+                QIQI_LOGO_1="$(qiqi_ansi_256 161)"
+                QIQI_LOGO_2="$(qiqi_ansi_256 162)"
+                QIQI_LOGO_3="$(qiqi_ansi_256 166)"
+                QIQI_LOGO_4="$(qiqi_ansi_256 34)"
+                QIQI_LOGO_5="$(qiqi_ansi_256 35)"
+                QIQI_LOGO_6="$(qiqi_ansi_256 37)"
+                ;;
+        esac
+    else
+        QIQI_EFFECTIVE_THEME="${QIQI_THEME_MODE:-plain}"
+        QIQI_PINK=''
+        QIQI_PINK_2=''
+        QIQI_GREEN=''
+        QIQI_GREEN_2=''
+        QIQI_ORANGE=''
+        QIQI_CYAN=''
+        QIQI_BLUE=''
+        QIQI_GRAY=''
+        QIQI_WHITE=''
+        QIQI_RED=''
+        QIQI_PLAIN=''
+        QIQI_BOLD=''
+        QIQI_LOGO_1=''
+        QIQI_LOGO_2=''
+        QIQI_LOGO_3=''
+        QIQI_LOGO_4=''
+        QIQI_LOGO_5=''
+        QIQI_LOGO_6=''
+    fi
+}
+
+qiqi_refresh_theme() {
+    qiqi_apply_theme
+}
+
+qiqi_apply_theme
 
 # qiqi-style 配色语义：
 # - 粉色：品牌主色、分隔线、输入提示
@@ -334,12 +344,12 @@ pause() {
 }
 
 qiqi_line() {
-    printf "${QIQI_PINK}%s${QIQI_PLAIN}\n" "------------------------------------------------------------------------"
+    printf "${QIQI_PINK}%s${QIQI_PLAIN}\n" "────────────────────────────────────────────────────────────────────────"
 }
 
 qiqi_section() {
     local title="$1"
-    printf "\n${QIQI_PINK}--------------------- %s ---------------------${QIQI_PLAIN}\n" "$title"
+    printf "\n${QIQI_PINK}───────────────────── %s ─────────────────────${QIQI_PLAIN}\n" "$title"
 }
 
 qiqi_menu_item() {
@@ -359,10 +369,33 @@ qiqi_banner() {
     local description="${3:-Docker / Nginx deployment toolkit}"
     local project_url="${4:-https://github.com/qiqi-style/DN_Tools}"
 
+    qiqi_refresh_theme
     echo
-    qiqi_line
-    printf "  ${QIQI_CYAN}%s${QIQI_PLAIN} ${QIQI_WHITE}%s${QIQI_PLAIN}\n" "$project_name" "$version"
-    printf "  ${QIQI_WHITE}%s${QIQI_PLAIN}\n" "$description"
-    printf "  项目地址: ${QIQI_CYAN}%s${QIQI_PLAIN}\n" "$project_url"
-    qiqi_line
+    if [ "$QIQI_BANNER_STYLE" = "compact" ] || [ "$QIQI_EFFECTIVE_THEME" = "plain" ] || [ "$QIQI_EFFECTIVE_THEME" = "none" ]; then
+        qiqi_line
+        printf "  ${QIQI_CYAN}%s${QIQI_PLAIN} ${QIQI_WHITE}%s${QIQI_PLAIN}\n" "$project_name" "$version"
+        printf "  ${QIQI_WHITE}%s${QIQI_PLAIN}\n" "$description"
+        qiqi_line
+    else
+        printf "${QIQI_PINK}  %s${QIQI_PLAIN}\n" "░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░"
+        echo
+        printf "  ${QIQI_LOGO_1} ██████╗  ${QIQI_LOGO_2}██╗${QIQI_LOGO_2} ██████╗  ${QIQI_LOGO_3}██╗         ${QIQI_LOGO_4}███████╗${QIQI_LOGO_5}████████╗${QIQI_LOGO_5}██╗   ██╗${QIQI_LOGO_6}██╗     ███████╗${QIQI_PLAIN}\n"
+        printf "  ${QIQI_LOGO_1}██╔═══██╗ ${QIQI_LOGO_2}██║${QIQI_LOGO_2}██╔═══██╗ ${QIQI_LOGO_3}██║         ${QIQI_LOGO_4}██╔════╝${QIQI_LOGO_5}╚══██╔══╝${QIQI_LOGO_5}╚██╗ ██╔╝${QIQI_LOGO_6}██║     ██╔════╝${QIQI_PLAIN}\n"
+        printf "  ${QIQI_LOGO_2}██║   ██║ ${QIQI_LOGO_2}██║${QIQI_LOGO_3}██║   ██║ ${QIQI_LOGO_3}██║  ▄▄▄▄▄  ${QIQI_LOGO_4}██║        ${QIQI_LOGO_5}██║    ╚████╔╝ ${QIQI_LOGO_6}██║     █████╗${QIQI_PLAIN}\n"
+        printf "  ${QIQI_LOGO_2}██║   ██║ ${QIQI_LOGO_3}██║${QIQI_LOGO_3}██║   ██║ ${QIQI_LOGO_3}██║  ▀▀▀▀▀  ${QIQI_LOGO_4}███████╗   ${QIQI_LOGO_5}██║     ╚██╔╝  ${QIQI_LOGO_6}██║     ██╔══╝${QIQI_PLAIN}\n"
+        printf "  ${QIQI_LOGO_3}██║▄▄ ██║ ${QIQI_LOGO_3}██║${QIQI_LOGO_3}██║▄▄ ██║ ${QIQI_LOGO_3}██║         ${QIQI_LOGO_5}╚════██║   ██║      ██║   ${QIQI_LOGO_6}██║     ██║${QIQI_PLAIN}\n"
+        printf "  ${QIQI_LOGO_3}╚██████╔╝ ${QIQI_LOGO_3}██║${QIQI_LOGO_3}╚██████╔╝ ${QIQI_LOGO_3}██║         ${QIQI_LOGO_5}███████║   ██║      ██║   ${QIQI_LOGO_6}███████╗███████╗${QIQI_PLAIN}\n"
+        printf "  ${QIQI_LOGO_3} ╚══▀▀═╝  ╚═╝ ╚══▀▀═╝  ╚═╝         ${QIQI_LOGO_5}╚══════╝   ╚═╝      ╚═╝   ${QIQI_LOGO_6}╚══════╝╚══════╝${QIQI_PLAIN}\n"
+        echo
+        printf "${QIQI_GREEN}  %s${QIQI_PLAIN}\n" "░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░"
+    fi
+
+    echo
+    printf "  ${QIQI_GREEN}⬥ qiqi Github   :${QIQI_PLAIN}  ${QIQI_WHITE}%s${QIQI_PLAIN}\n" "$QIQI_GITHUB_URL"
+    printf "  ${QIQI_GREEN}⬥ qiqi YouTube  :${QIQI_PLAIN}  ${QIQI_WHITE}%s${QIQI_PLAIN}\n" "$QIQI_YOUTUBE_URL"
+    printf "  ${QIQI_GREEN}⬥ qiqi 博客     :${QIQI_PLAIN}  ${QIQI_WHITE}%s${QIQI_PLAIN}\n" "$QIQI_BLOG_URL"
+    printf "${QIQI_PINK}  ─────────────────────────── 项目简介 ─────────────────────────────  ${QIQI_PLAIN}\n"
+    printf "  ${QIQI_GRAY}⬥${QIQI_PLAIN} 项目地址：${QIQI_CYAN}%s${QIQI_PLAIN}\n" "$project_url"
+    printf "  ${QIQI_GRAY}⬥${QIQI_PLAIN} 当前版本：${QIQI_CYAN}%s (%s)${QIQI_PLAIN}\n" "$version" "$project_name"
+    printf "  ${QIQI_GRAY}⬥${QIQI_PLAIN} ${QIQI_WHITE}%s${QIQI_PLAIN}\n" "$description"
 }
