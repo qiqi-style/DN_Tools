@@ -47,7 +47,7 @@ bash <(curl -sL https://raw.githubusercontent.com/qiqi-style/DN_Tools/main/insta
 curl -fsSL https://raw.githubusercontent.com/qiqi-style/DN_Tools/main/install.sh | sudo bash
 ```
 
-重复运行一键安装会重新拉取项目并覆盖 `/opt/DN_Tools`。安装脚本会把内置 Docker 项目完整同步到 `/app/<project_id>`；如果 `/app` 中已经存在同名项目，会默认保留，不会覆盖运行数据和用户配置。
+重复运行一键安装会重新拉取项目并覆盖 `/opt/DN_Tools`。用户已经安装或自定义的 Docker 项目应放在 `/app/<project_id>`，不会被一键安装覆盖。
 
 不要把自定义 Docker 项目放在 `/opt/DN_Tools/docker`，该目录只用于仓库内置模板，升级时会随仓库刷新。
 
@@ -91,18 +91,18 @@ sudo ./start.sh
 [ 1 ] Docker 项目安装
 ```
 
-安装 DN_Tools 或进入 Docker 安装菜单时，脚本会先把 `/opt/DN_Tools/docker/<project_id>` 中的内置项目完整复制到：
+脚本会先检测 `/app/<project_id>` 是否已有对应项目。选择某个内置项目安装时，如果 `/app` 中还没有该项目，才会把 `/opt/DN_Tools/docker/<project_id>` 中的完整项目复制到：
 
 ```text
 /app/<project_id>/
 ```
 
-如果 `/app/<project_id>` 已经存在，默认保留现有目录。选择内置项目时：
+如果 `/app/<project_id>` 已经存在，默认保留现有目录。选择该内置项目时：
 
 - 选项 `1`：直接安装 / 启动 `/app` 中的现有项目
 - 选项 `2`：重新安装，从内置项目覆盖复制到 `/app`
 
-后续再次运行一键安装只会更新工具本身和补齐缺失的内置项目，正常不会覆盖 `/app/<project_id>` 中的运行数据和用户配置。
+后续再次运行一键安装只会更新工具本身，正常不会覆盖 `/app/<project_id>` 中的运行数据和用户配置。
 
 ### 3. Docker 项目管理
 

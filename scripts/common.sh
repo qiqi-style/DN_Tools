@@ -332,18 +332,6 @@ copy_builtin_project_to_app() {
     [ -f "$target_path/project.conf" ] || write_project_conf_defaults "$id" "$target_path/project.conf"
 }
 
-sync_builtin_projects_to_app() {
-    local id found=0
-    while IFS= read -r id; do
-        [ -n "$id" ] || continue
-        if [ "$found" -eq 0 ]; then
-            mkdir -p "$TARGET_BASE_DIR" || return 1
-            found=1
-        fi
-        copy_builtin_project_to_app "$id" keep || true
-    done < <(list_source_project_ids)
-}
-
 reinstall_builtin_project() {
     local id="$1" target_path
     target_path="$(app_project_path "$id")"

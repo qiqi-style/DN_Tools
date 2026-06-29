@@ -299,7 +299,6 @@ install_builtin_project_by_choice() {
 
 install_menu() {
     local builtin_ids=() custom_ids=() id i choice status menu_no
-    sync_builtin_projects_to_app
     while true; do
         array_from_lines builtin_ids "$(list_source_project_ids)"
         array_from_lines custom_ids "$(list_custom_app_project_ids)"

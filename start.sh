@@ -18,14 +18,14 @@ environment_gate() {
         qiqi_menu_item "1" "安装 Docker" "(占位功能，当前只提示)"
         qiqi_menu_item "2" "安装 Nginx" "(占位功能，当前只提示)"
         qiqi_menu_item "3" "进入 DN_Tools 控制台"
-        qiqi_menu_item "4" "退出控制台"
+        qiqi_menu_item "0" "退出控制台"
         echo
-        readp "  请输入选项数字 [1-4] → " choice
+        readp "  请输入选项数字 [0-3] → " choice
         case "$choice" in
             1) install_docker_placeholder; pause ;;
             2) install_nginx_placeholder; pause ;;
             3) return 0 ;;
-            4) green "已退出 DN_Tools。"; exit 0 ;;
+            0) green "已退出 DN_Tools。"; exit 0 ;;
             *) red "无效选项，请重新输入。"; sleep 1 ;;
         esac
     done
@@ -41,9 +41,9 @@ main_menu() {
         qiqi_menu_item "1" "Docker 项目安装"
         qiqi_menu_item "2" "Docker 项目管理"
         qiqi_menu_item "3" "Nginx 反代设置"
-        qiqi_menu_item "4" "退出控制台"
+        qiqi_menu_item "0" "退出控制台"
         echo
-        readp "  请输入选项数字 [1-4] → " choice
+        readp "  请输入选项数字 [0-3] → " choice
         case "$choice" in
             1)
                 if ! docker_available; then
@@ -73,7 +73,7 @@ main_menu() {
                     "$BASE_DIR/scripts/nginx_manage.sh"
                 fi
                 ;;
-            4)
+            0)
                 green "已退出 DN_Tools。"
                 exit 0
                 ;;

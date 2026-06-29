@@ -27,7 +27,7 @@ export LANG=en_US.UTF-8
 #
 # 主题模式：
 #
-#   QIQI_THEME_MODE=auto     # 默认。读取 COLORFGBG，无法判断时使用 contrast。
+#   QIQI_THEME_MODE=auto     # 默认。自动判断终端背景色，失败时使用 COLORFGBG/contrast 兜底。
 #   QIQI_THEME_MODE=contrast # 高对比配色，浅色/暗色背景都尽量清楚。
 #   QIQI_THEME_MODE=light    # 明色终端背景，使用更深的绿色/青色/粉色。
 #   QIQI_THEME_MODE=dark     # 暗色终端背景，使用更亮的霓虹色。
@@ -35,7 +35,7 @@ export LANG=en_US.UTF-8
 #
 # 自动检测微调：
 #
-#   QIQI_THEME_AUTO_QUERY=1  # 启用 OSC 11 背景色查询；部分终端可能把响应泄漏到输入提示。
+#   QIQI_THEME_AUTO_QUERY=0  # 禁用 OSC 11 背景色查询，只使用 COLORFGBG/contrast 兜底。
 #   QIQI_LIGHT_BG_THRESHOLD=160 # 背景亮度阈值，数值越低越容易判定为明色背景。
 #
 # 关闭颜色：
@@ -54,8 +54,9 @@ QIQI_YOUTUBE_URL="${QIQI_YOUTUBE_URL:-https://www.youtube.com/@qiqi-style}"
 QIQI_BLOG_URL="${QIQI_BLOG_URL:-https://qiaiai.xyz}"
 QIQI_THEME_MODE="${QIQI_THEME_MODE:-auto}"
 QIQI_BANNER_STYLE="${QIQI_BANNER_STYLE:-full}"
-QIQI_THEME_AUTO_QUERY="${QIQI_THEME_AUTO_QUERY:-0}"
+QIQI_THEME_AUTO_QUERY="${QIQI_THEME_AUTO_QUERY:-1}"
 QIQI_LIGHT_BG_THRESHOLD="${QIQI_LIGHT_BG_THRESHOLD:-160}"
+QIQI_OSC_QUERY_SENT=0
 
 qiqi_color_enabled() {
     [ -z "${NO_COLOR:-}" ] || return 1
@@ -113,13 +114,14 @@ qiqi_query_terminal_theme() {
         stty "$old_stty" < /dev/tty 2>/dev/null || true
         return 1
     }
+    QIQI_OSC_QUERY_SENT=1
 
     # OSC 11 的响应通常以 BEL 或 ST(ESC \) 结束，不带换行。
     # 必须逐字符读取并消费结束符，否则响应会残留到后续 readp 输入中，
     # 变成类似 ^[]11;rgb:0000/0000/0000^[\ 的乱码。
     response=""
     prev=""
-    timeout="0.6"
+    timeout="1.2"
     count=0
     while [ "$count" -lt 240 ]; do
         if IFS= read -r -s -n 1 -t "$timeout" ch < /dev/tty; then
@@ -143,17 +145,43 @@ qiqi_query_terminal_theme() {
     printf '%s' "$theme"
 }
 
+qiqi_flush_pending_osc_response() {
+    local old_stty ch prev count
+    [ "$QIQI_OSC_QUERY_SENT" = "1" ] || return 0
+    [ -r /dev/tty ] && [ -w /dev/tty ] || return 0
+
+    old_stty="$(stty -g < /dev/tty 2>/dev/null)" || return 0
+    stty -echo -icanon min 0 time 0 < /dev/tty 2>/dev/null || return 0
+    prev=""
+    count=0
+    while [ "$count" -lt 240 ]; do
+        if IFS= read -r -s -n 1 -t 0.001 ch < /dev/tty; then
+            case "$ch" in
+                $'\a') break ;;
+                "\\")
+                    [ "$prev" = $'\033' ] && break
+                    ;;
+            esac
+            prev="$ch"
+            count=$((count + 1))
+        else
+            break
+        fi
+    done
+    stty "$old_stty" < /dev/tty 2>/dev/null || true
+    QIQI_OSC_QUERY_SENT=0
+}
+
 qiqi_detect_theme_mode() {
     local mode="$QIQI_THEME_MODE" queried bg
     case "$mode" in
         light|dark|contrast|plain|none) printf '%s' "$mode"; return 0 ;;
     esac
 
-    # 可选使用 OSC 11 查询真实背景色：
+    # 交互终端优先使用 OSC 11 查询真实背景色：
     #   request : ESC ] 11 ; ? ESC \
     #   response: ESC ] 11 ; rgb:RRRR/GGGG/BBBB BEL
-    # 部分终端会延迟返回响应，导致控制序列泄漏到后续 readp 输入提示；
-    # 因此默认关闭，只在 QIQI_THEME_AUTO_QUERY=1 时启用。
+    # 查询后 readp 会再清理一次可能延迟返回的响应，避免 ^[]11;rgb... 泄漏到输入提示。
     queried="$(qiqi_query_terminal_theme 2>/dev/null)" || queried=""
     if [ -n "$queried" ]; then
         printf '%s' "$queried"
@@ -221,7 +249,7 @@ if qiqi_color_enabled; then
             QIQI_CYAN="$(qiqi_ansi_256 25)"
             QIQI_BLUE="$(qiqi_ansi_256 25)"
             QIQI_GRAY="$(qiqi_ansi_256 240)"
-            QIQI_WHITE="$(qiqi_ansi_256 235)"
+            QIQI_WHITE="$(qiqi_ansi_256 16)"
             QIQI_RED="$(qiqi_ansi_256 124)"
             QIQI_LOGO_1="$(qiqi_ansi_256 161)"
             QIQI_LOGO_2="$(qiqi_ansi_256 162)"
@@ -291,6 +319,7 @@ muted(){ printf "${QIQI_GRAY}%s${QIQI_PLAIN}\n" "$1"; }
 readp() {
     local prompt="$1"
     local __var="$2"
+    qiqi_flush_pending_osc_response
     if { [ -r /dev/tty ] && [ -w /dev/tty ] && : < /dev/tty; } 2>/dev/null; then
         IFS='' read -r -p "$(printf "${QIQI_PINK}%s${QIQI_PLAIN}" "$prompt")" "$__var" < /dev/tty
     else
@@ -318,9 +347,9 @@ qiqi_menu_item() {
     local label="$2"
     local desc="${3:-}"
     if [ -n "$desc" ]; then
-        printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN}  ${QIQI_WHITE}%s${QIQI_PLAIN} ${QIQI_GRAY}%s${QIQI_PLAIN}\n" "$num" "$label" "$desc"
+        printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN}  ${QIQI_BOLD}${QIQI_WHITE}%s${QIQI_PLAIN} ${QIQI_GRAY}%s${QIQI_PLAIN}\n" "$num" "$label" "$desc"
     else
-        printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN}  ${QIQI_WHITE}%s${QIQI_PLAIN}\n" "$num" "$label"
+        printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN}  ${QIQI_BOLD}${QIQI_WHITE}%s${QIQI_PLAIN}\n" "$num" "$label"
     fi
 }
 
