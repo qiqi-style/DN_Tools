@@ -35,12 +35,6 @@ docker/<project_id>/
 
 ## 一键安装
 
-项目地址：
-
-```text
-https://github.com/qiqi-style/DN_Tools
-```
-
 推荐使用下面这种方式一键安装：
 
 ```bash
