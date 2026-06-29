@@ -1,0 +1,12 @@
+services:
+  chatgpt2api:
+    image: ghcr.io/basketikun/chatgpt2api:latest
+    container_name: dn-tools-chatgpt2api
+    restart: unless-stopped
+    ports:
+      - "${CHATGPT2API_BIND_HOST:-127.0.0.1}:${CHATGPT2API_PORT:-13080}:80"
+    volumes:
+      - ./data:/app/data
+      - ./config.json:/app/config.json:ro
+    environment:
+      STORAGE_BACKEND: "${STORAGE_BACKEND:-json}"
