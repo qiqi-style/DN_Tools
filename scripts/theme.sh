@@ -9,9 +9,9 @@ export LANG=en_US.UTF-8
 #
 #   # 推荐：脚本中先判断文件存在，再 source。没有 theme.sh 时使用自己的 fallback，
 #   # 不要让主题文件成为脚本运行的硬依赖。
-#   if [ -f "$TOOL_ROOT/theme.sh" ]; then
-#       # shellcheck source=theme.sh
-#       . "$TOOL_ROOT/theme.sh"
+#   if [ -f "$TOOL_ROOT/scripts/theme.sh" ]; then
+#       # shellcheck source=scripts/theme.sh
+#       . "$TOOL_ROOT/scripts/theme.sh"
 #   else
 #       pink(){ printf '%s\n' "$1"; }
 #       green(){ printf '%s\n' "$1"; }
@@ -102,7 +102,7 @@ qiqi_theme_from_osc_response() {
 }
 
 qiqi_query_terminal_theme() {
-    local old_stty response theme
+    local old_stty response theme ch prev timeout count
     [ "$QIQI_THEME_AUTO_QUERY" = "1" ] || return 1
     qiqi_color_enabled || return 1
     [ -r /dev/tty ] && [ -w /dev/tty ] || return 1
@@ -113,7 +113,30 @@ qiqi_query_terminal_theme() {
         stty "$old_stty" < /dev/tty 2>/dev/null || true
         return 1
     }
-    IFS= read -r -s -t 0.2 response < /dev/tty || true
+
+    # OSC 11 的响应通常以 BEL 或 ST(ESC \) 结束，不带换行。
+    # 必须逐字符读取并消费结束符，否则响应会残留到后续 readp 输入中，
+    # 变成类似 ^[]11;rgb:0000/0000/0000^[\ 的乱码。
+    response=""
+    prev=""
+    timeout="0.6"
+    count=0
+    while [ "$count" -lt 240 ]; do
+        if IFS= read -r -s -n 1 -t "$timeout" ch < /dev/tty; then
+            response="${response}${ch}"
+            case "$ch" in
+                $'\a') break ;;
+                "\\")
+                    [ "$prev" = $'\033' ] && break
+                    ;;
+            esac
+            prev="$ch"
+            timeout="0.03"
+            count=$((count + 1))
+        else
+            break
+        fi
+    done
     stty "$old_stty" < /dev/tty 2>/dev/null || true
 
     theme="$(qiqi_theme_from_osc_response "$response")" || return 1
@@ -176,15 +199,15 @@ if qiqi_color_enabled; then
             QIQI_GREEN="$(qiqi_ansi_256 118)"
             QIQI_GREEN_2="$(qiqi_ansi_256 157)"
             QIQI_ORANGE="$(qiqi_ansi_256 208)"
-            QIQI_CYAN="$(qiqi_ansi_256 81)"
-            QIQI_GRAY="$(qiqi_ansi_256 250)"
-            QIQI_WHITE="$(qiqi_ansi_256 255)"
-            QIQI_RED="$(qiqi_ansi_256 203)"
+            QIQI_CYAN='\033[1;36m'
+            QIQI_GRAY="$(qiqi_ansi_256 245)"
+            QIQI_WHITE='\033[1;37m'
+            QIQI_RED="$(qiqi_ansi_256 211)"
             QIQI_LOGO_1="$(qiqi_ansi_256 211)"
-            QIQI_LOGO_2="$(qiqi_ansi_256 213)"
-            QIQI_LOGO_3="$(qiqi_ansi_256 214)"
+            QIQI_LOGO_2="$(qiqi_ansi_256 212)"
+            QIQI_LOGO_3="$(qiqi_ansi_256 213)"
             QIQI_LOGO_4="$(qiqi_ansi_256 118)"
-            QIQI_LOGO_5="$(qiqi_ansi_256 120)"
+            QIQI_LOGO_5="$(qiqi_ansi_256 119)"
             QIQI_LOGO_6="$(qiqi_ansi_256 157)"
             ;;
         light)

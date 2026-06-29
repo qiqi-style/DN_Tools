@@ -7,9 +7,9 @@ BIN_PATH="${BIN_PATH:-/usr/local/bin/dntool}"
 REPO_URL="${REPO_URL:-https://github.com/qiqi-style/DN_Tools.git}"
 RAW_MODE=0
 
-if [ -f "$SOURCE_DIR/theme.sh" ]; then
-    # shellcheck source=theme.sh
-    . "$SOURCE_DIR/theme.sh"
+if [ -f "$SOURCE_DIR/scripts/theme.sh" ]; then
+    # shellcheck source=scripts/theme.sh
+    . "$SOURCE_DIR/scripts/theme.sh"
 else
     # theme.sh 是可选增强。缺失时使用高对比 fallback，确保安装脚本仍可运行。
     QIQI_PINK='\033[38;5;161m'
@@ -57,19 +57,17 @@ if [ "$RAW_MODE" -eq 1 ]; then
         exit 1
     fi
 
-    if [ -d "$INSTALL_DIR/.git" ]; then
-        pink ">>> 检测到已安装目录，正在更新 $INSTALL_DIR"
-        git -C "$INSTALL_DIR" fetch --all >/dev/null 2>&1
-        git -C "$INSTALL_DIR" reset --hard origin/main >/dev/null 2>&1
-    else
-        tmp_dir="${INSTALL_DIR}.tmp.$$"
+    tmp_dir="${INSTALL_DIR}.tmp.$$"
+    rm -rf "$tmp_dir"
+    mkdir -p "$(dirname "$INSTALL_DIR")"
+    pink ">>> 正在重新拉取 $REPO_URL 到 $INSTALL_DIR"
+    git clone "$REPO_URL" "$tmp_dir" >/dev/null 2>&1 || {
+        red "错误: 拉取仓库失败，已保留现有安装目录。"
         rm -rf "$tmp_dir"
-        mkdir -p "$(dirname "$INSTALL_DIR")"
-        pink ">>> 正在克隆 $REPO_URL 到 $INSTALL_DIR"
-        git clone "$REPO_URL" "$tmp_dir" >/dev/null 2>&1
-        rm -rf "$INSTALL_DIR"
-        mv "$tmp_dir" "$INSTALL_DIR"
-    fi
+        exit 1
+    }
+    rm -rf "$INSTALL_DIR"
+    mv "$tmp_dir" "$INSTALL_DIR"
 elif [ "$SOURCE_DIR" != "$INSTALL_DIR" ]; then
     tmp_dir="${INSTALL_DIR}.tmp.$$"
     rm -rf "$tmp_dir"
@@ -84,7 +82,6 @@ fi
 
 pink ">>> 正在配置脚本权限"
 chmod +x "$INSTALL_DIR/start.sh" "$INSTALL_DIR/install.sh" "$INSTALL_DIR"/scripts/*.sh
-[ -f "$INSTALL_DIR/theme.sh" ] && chmod +x "$INSTALL_DIR/theme.sh"
 
 write_launcher() {
     local path="$1"

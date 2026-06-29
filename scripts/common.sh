@@ -4,9 +4,9 @@ export LANG=en_US.UTF-8
 COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOL_ROOT="$(cd "$COMMON_DIR/.." && pwd)"
 
-if [ -f "$TOOL_ROOT/theme.sh" ]; then
-    # shellcheck source=../theme.sh
-    . "$TOOL_ROOT/theme.sh"
+if [ -f "$COMMON_DIR/theme.sh" ]; then
+    # shellcheck source=theme.sh
+    . "$COMMON_DIR/theme.sh"
 else
     # theme.sh 是可选增强。缺失时使用高对比 fallback，确保脚本仍可运行。
     QIQI_PINK='\033[38;5;161m'
@@ -38,7 +38,6 @@ PROJECT_URL="${PROJECT_URL:-https://github.com/qiqi-style/DN_Tools}"
 TARGET_BASE_DIR="${TARGET_BASE_DIR:-/app}"
 BACKUP_DIR="${BACKUP_DIR:-$TARGET_BASE_DIR/backup}"
 DOCKER_SOURCE_DIR="${DOCKER_SOURCE_DIR:-$TOOL_ROOT/docker}"
-DOCKER_CONFIG_FILE="${DOCKER_CONFIG_FILE:-$DOCKER_SOURCE_DIR/docker.conf}"
 NGINX_CONFIG_SOURCE_DIR="${NGINX_CONFIG_SOURCE_DIR:-$TOOL_ROOT/nginx-config}"
 
 PROJECT_NAME=""
@@ -197,14 +196,8 @@ project_conf_file() {
 
 project_conf_file_for_write() {
     local id="$1" path
-    if project_is_installed "$id"; then
-        path="$(app_project_path "$id")"
-    elif project_has_template "$id"; then
-        path="$(source_project_path "$id")"
-    else
-        path="$(app_project_path "$id")"
-        mkdir -p "$path"
-    fi
+    path="$(app_project_path "$id")"
+    mkdir -p "$path"
     printf '%s/project.conf' "$path"
 }
 
@@ -256,38 +249,49 @@ PUBLIC_URL=""
 EOF
 }
 
-configured_project_ids() {
-    [ -f "$DOCKER_CONFIG_FILE" ] || return 0
-    awk -F= '
-        /^[[:space:]]*(PROJECT_[0-9]+|USER_PROJECT_[0-9]+)[[:space:]]*=/ {
-            value=$2
-            sub(/#.*/, "", value)
-            gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
-            gsub(/^["'\'']|["'\'']$/, "", value)
-            if (value != "") print value
-        }
-    ' "$DOCKER_CONFIG_FILE"
+list_source_project_ids() {
+    local d id
+    [ -d "$DOCKER_SOURCE_DIR" ] || return 0
+    for d in "$DOCKER_SOURCE_DIR"/*; do
+        [ -d "$d" ] || continue
+        [ -f "$d/docker-compose.yml" ] || continue
+        id="$(basename "$d")"
+        printf '%s\n' "$id"
+    done | sort
+}
+
+list_app_project_ids() {
+    local d id
+    [ -d "$TARGET_BASE_DIR" ] || return 0
+    for d in "$TARGET_BASE_DIR"/*; do
+        [ -d "$d" ] || continue
+        [ -f "$d/docker-compose.yml" ] || continue
+        id="$(basename "$d")"
+        case "$id" in backup|backups) continue ;; esac
+        printf '%s\n' "$id"
+    done | sort
+}
+
+list_custom_app_project_ids() {
+    local id
+    while IFS= read -r id; do
+        [ -n "$id" ] || continue
+        project_has_template "$id" || printf '%s\n' "$id"
+    done < <(list_app_project_ids)
 }
 
 list_project_ids() {
-    local seen="|" id base d
+    local seen="|" id
+    # /app 优先。若 /app 和 /opt/DN_Tools/docker 中同名，所有管理都以 /app 为准。
     while IFS= read -r id; do
         [ -n "$id" ] || continue
-        if project_has_template "$id" || project_is_installed "$id"; then
-            case "$seen" in *"|$id|"*) ;; *) printf '%s\n' "$id"; seen="${seen}${id}|" ;; esac
-        fi
-    done < <(configured_project_ids)
+        case "$seen" in *"|$id|"*) ;; *) printf '%s\n' "$id"; seen="${seen}${id}|" ;; esac
+    done < <(list_app_project_ids)
 
-    for base in "$DOCKER_SOURCE_DIR" "$TARGET_BASE_DIR"; do
-        [ -d "$base" ] || continue
-        for d in "$base"/*; do
-            [ -d "$d" ] || continue
-            [ -f "$d/docker-compose.yml" ] || continue
-            id="$(basename "$d")"
-            case "$id" in backup) continue ;; esac
-            case "$seen" in *"|$id|"*) ;; *) printf '%s\n' "$id"; seen="${seen}${id}|" ;; esac
-        done
-    done
+    while IFS= read -r id; do
+        [ -n "$id" ] || continue
+        case "$seen" in *"|$id|"*) ;; *) printf '%s\n' "$id"; seen="${seen}${id}|" ;; esac
+    done < <(list_source_project_ids)
 }
 
 collect_installed_ids() {

@@ -254,37 +254,40 @@ EOF
     green "已更新: $conf_file"
 }
 
-custom_install_project() {
-    local id target_path
+show_custom_project_help() {
     qiqi_section "自定义 Docker 项目"
-    muted "请准备目录: $TARGET_BASE_DIR/<项目ID>/docker-compose.yml"
+    muted "请手动上传项目到: $TARGET_BASE_DIR/<项目ID>/docker-compose.yml"
     muted "可选文件: project.conf、.env、Nginx 或应用自己的配置文件。"
-    echo
-    readp "  输入项目ID开始管理，或直接回车返回 → " id
-    [ -n "$id" ] || return 0
-    case "$id" in */*|*..*) red "项目ID 不允许包含 / 或 .."; return 1 ;; esac
-    target_path="$(app_project_path "$id")"
-    if [ ! -f "$target_path/docker-compose.yml" ]; then
-        red "未找到: $target_path/docker-compose.yml"
+    muted "上传完成后重新进入 Docker 项目安装菜单，会以 991、992... 显示。"
+}
+
+select_custom_project_by_choice() {
+    local choice="$1" custom_ids=() index id target_path
+    array_from_lines custom_ids "$(list_custom_app_project_ids)"
+    index=$((choice - 991))
+    if [ "$index" -lt 0 ] || [ "$index" -ge "${#custom_ids[@]}" ]; then
         return 1
     fi
+    id="${custom_ids[$index]}"
+    target_path="$(app_project_path "$id")"
     [ -f "$target_path/project.conf" ] || write_project_conf_defaults "$id" "$target_path/project.conf"
     manage_project_loop "$id"
 }
 
 install_menu() {
-    local ids=() id i choice status label
+    local builtin_ids=() custom_ids=() id i choice status label menu_no
     while true; do
-        array_from_lines ids "$(list_project_ids)"
+        array_from_lines builtin_ids "$(list_source_project_ids)"
+        array_from_lines custom_ids "$(list_custom_app_project_ids)"
         clear
         qiqi_banner "$PROJECT_TITLE" "$PROJECT_VERSION" "Docker 项目安装" "$PROJECT_URL"
         show_all_installed_summary
-        qiqi_section "可安装 / 可管理项目"
-        if [ "${#ids[@]}" -eq 0 ]; then
-            muted "  暂无项目模板。"
+        qiqi_section "内置 Docker 项目"
+        if [ "${#builtin_ids[@]}" -eq 0 ]; then
+            muted "  暂无内置项目模板。"
         else
             i=1
-            for id in "${ids[@]}"; do
+            for id in "${builtin_ids[@]}"; do
                 load_project_meta "$id"
                 if project_is_installed "$id"; then
                     status="${QIQI_GREEN}已安装${QIQI_PLAIN}"
@@ -297,23 +300,38 @@ install_menu() {
                 i=$((i + 1))
             done
         fi
-        printf "  ${QIQI_GREEN}[ 99 ]${QIQI_PLAIN} 自定义安装说明 / 管理 /app 项目\n"
+
+        qiqi_section "用户自定义项目"
+        if [ "${#custom_ids[@]}" -eq 0 ]; then
+            muted "  暂无自定义项目。请先上传到 $TARGET_BASE_DIR/<项目ID>/docker-compose.yml"
+        else
+            i=0
+            for id in "${custom_ids[@]}"; do
+                menu_no=$((991 + i))
+                load_project_meta "$id"
+                printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN} %s ${QIQI_GRAY}(%s)${QIQI_PLAIN} - ${QIQI_GREEN}已在 /app 准备好${QIQI_PLAIN} / 进入管理\n" "$menu_no" "$PROJECT_NAME" "$id"
+                i=$((i + 1))
+            done
+        fi
+        printf "  ${QIQI_GREEN}[ 99 ]${QIQI_PLAIN} 自定义项目上传说明\n"
         printf "  ${QIQI_GRAY}[ 0 ]${QIQI_PLAIN} 返回主菜单\n"
         echo
         readp "  请输入选项 → " choice
         case "$choice" in
             0) exit 0 ;;
-            99) custom_install_project; pause ;;
+            99) show_custom_project_help; pause ;;
             ''|*[!0-9]*) red "无效选项。"; sleep 1 ;;
             *)
-                if [ "$choice" -ge 1 ] 2>/dev/null && [ "$choice" -le "${#ids[@]}" ] 2>/dev/null; then
-                    id="${ids[$((choice - 1))]}"
+                if [ "$choice" -ge 1 ] 2>/dev/null && [ "$choice" -le "${#builtin_ids[@]}" ] 2>/dev/null; then
+                    id="${builtin_ids[$((choice - 1))]}"
                     if project_is_installed "$id"; then
                         manage_project_loop "$id"
                     else
                         install_or_start_project "$id"
                         pause
                     fi
+                elif [ "$choice" -ge 991 ] 2>/dev/null && [ "$choice" -le $((990 + ${#custom_ids[@]})) ] 2>/dev/null; then
+                    select_custom_project_by_choice "$choice"
                 else
                     red "无效选项。"
                     sleep 1
