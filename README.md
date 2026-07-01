@@ -45,6 +45,24 @@ sudo ./install.sh
 dntool
 ```
 
+## 删除 DN_Tools 脚本
+
+只删除工具脚本和全局命令：
+
+```bash
+sudo rm -rf /opt/DN_Tools
+sudo rm -f /usr/local/bin/dntool
+```
+
+如果安装时自定义过路径，请按实际路径删除：
+
+```bash
+sudo rm -rf <INSTALL_DIR>
+sudo rm -f <BIN_PATH>
+```
+
+这只会删除 DN_Tools 本身，不会删除 `/app/<project_id>` 里的 Docker 项目、运行数据、Nginx 配置或备份文件。
+
 ## 自定义 Docker 项目准备
 
 把项目放到：

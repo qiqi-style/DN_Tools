@@ -99,12 +99,32 @@ chmod +x "$INSTALL_DIR/start.sh" "$INSTALL_DIR/install.sh" "$INSTALL_DIR"/script
 
 write_launcher() {
     local path="$1"
+    local project_url install_cmd delete_cmd
+    project_url="https://github.com/qiqi-style/DN_Tools"
+    install_cmd='bash <(curl -sL https://raw.githubusercontent.com/qiqi-style/DN_Tools/main/install.sh)'
+    delete_cmd="sudo rm -f $path"
     cat > "$path" << EOF
 #!/usr/bin/env bash
+INSTALL_DIR="$INSTALL_DIR"
+PROJECT_URL="$project_url"
+INSTALL_CMD="$install_cmd"
+DELETE_CMD="$delete_cmd"
+
+if [ ! -f "\$INSTALL_DIR/start.sh" ]; then
+    echo "错误: DN_Tools 脚本目录不存在或不完整: \$INSTALL_DIR"
+    echo
+    echo "项目地址: \$PROJECT_URL"
+    echo "重新拉取 / 安装命令:"
+    echo "  \$INSTALL_CMD"
+    echo "删除当前 dntool 命令:"
+    echo "  \$DELETE_CMD"
+    exit 1
+fi
+
 if [ "\$EUID" -ne 0 ]; then
-    cd "$INSTALL_DIR" && sudo ./start.sh
+    cd "\$INSTALL_DIR" && sudo ./start.sh
 else
-    cd "$INSTALL_DIR" && ./start.sh
+    cd "\$INSTALL_DIR" && ./start.sh
 fi
 EOF
     chmod +x "$path"
