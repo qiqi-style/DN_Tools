@@ -7,6 +7,20 @@ BIN_PATH="${BIN_PATH:-/usr/local/bin/dntool}"
 REPO_URL="${REPO_URL:-https://github.com/qiqi-style/DN_Tools.git}"
 RAW_MODE=0
 
+case "$INSTALL_DIR" in
+    ""|"/")
+        echo "错误: INSTALL_DIR 不能是空值或根目录。"
+        exit 1
+        ;;
+esac
+
+case "$BIN_PATH" in
+    ""|"/")
+        echo "错误: BIN_PATH 不能是空值或根目录。"
+        exit 1
+        ;;
+esac
+
 if [ -f "$SOURCE_DIR/scripts/theme.sh" ]; then
     # shellcheck source=scripts/theme.sh
     . "$SOURCE_DIR/scripts/theme.sh"

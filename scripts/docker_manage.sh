@@ -10,6 +10,12 @@ SELECTED_PROJECT_ID=""
 
 array_from_lines() {
     local __name="$1" text="${2:-}" line
+    case "$__name" in
+        ''|[!a-zA-Z_]*|*[!a-zA-Z0-9_]*)
+            red "内部错误: 无效数组变量名 $__name"
+            return 1
+            ;;
+    esac
     eval "$__name=()"
     if [ "$#" -ge 2 ]; then
         while IFS= read -r line; do
@@ -43,26 +49,53 @@ show_project_detail() {
     printf "  ${QIQI_GREEN}项目地址${QIQI_PLAIN}: %s\n" "${PROJECT_META_URL:-未配置}"
     printf "  ${QIQI_GREEN}运行目录${QIQI_PLAIN}: %s\n" "$path"
     printf "  ${QIQI_GREEN}容器名称${QIQI_PLAIN}: %s\n" "$containers"
-    printf "  ${QIQI_GREEN}镜像版本${QIQI_PLAIN}: %s\n" "$images"
+    printf "  ${QIQI_GREEN}安装镜像${QIQI_PLAIN}: %s\n" "$images"
     printf "  ${QIQI_GREEN}当前状态${QIQI_PLAIN}: %b\n" "$(project_running_status "$id")"
-    printf "  ${QIQI_GREEN}内网地址${QIQI_PLAIN}: %s %b\n" "$local_url" "$(check_url "$health_url")"
-    printf "  ${QIQI_GREEN}外网地址${QIQI_PLAIN}: %s %b\n" "$public_url" "$(check_url "$public_url")"
-    printf "  ${QIQI_GREEN}版本记录${QIQI_PLAIN}: 安装/更新时通过 docker compose pull 写入 dntool-config/project.conf\n"
+    printf "  ${QIQI_GREEN}内网地址${QIQI_PLAIN}: %s %b\n" "$local_url" "$(check_url_icon "$health_url")"
+    printf "  ${QIQI_GREEN}外网地址${QIQI_PLAIN}: %s %b\n" "$public_url" "$(check_url_icon "$public_url")"
+}
+
+show_installed_projects_table() {
+    local with_choices="${1:-0}" ids=() id index label option local_url public_url health_url
+    shift || true
+    if [ "$#" -gt 0 ]; then
+        ids=("$@")
+    else
+        array_from_lines ids "$(collect_installed_ids)"
+    fi
+
+    qiqi_section "已安装项目"
+    if [ "${#ids[@]}" -eq 0 ]; then
+        yellow "  没有已安装项目。"
+        return 0
+    fi
+
+    if [ "$with_choices" = "1" ]; then
+        printf "  ${QIQI_GREEN}%-7s${QIQI_PLAIN} ${QIQI_WHITE}%-32s${QIQI_PLAIN} ${QIQI_WHITE}%-10s${QIQI_PLAIN} ${QIQI_WHITE}%-6s${QIQI_PLAIN} %s\n" "选项" "项目(ID)" "状态" "连通" "地址"
+    else
+        printf "  ${QIQI_GREEN}%-7s${QIQI_PLAIN} ${QIQI_WHITE}%-32s${QIQI_PLAIN} ${QIQI_WHITE}%-10s${QIQI_PLAIN} ${QIQI_WHITE}%-6s${QIQI_PLAIN} %s\n" "序号" "项目(ID)" "状态" "连通" "地址"
+    fi
+
+    index=1
+    for id in "${ids[@]}"; do
+        load_project_meta "$id"
+        label="$PROJECT_NAME ($id)"
+        if [ "$with_choices" = "1" ]; then
+            option="[ $index ]"
+        else
+            option="$index"
+        fi
+        local_url="$(project_local_url "$id")"
+        public_url="$(project_public_url "$id")"
+        health_url="${HEALTH_URL:-$local_url}"
+        printf "  ${QIQI_GREEN}%-7s${QIQI_PLAIN} ${QIQI_CYAN}%-32s${QIQI_PLAIN} %b  %-6b 内网 %s\n" "$option" "$label" "$(project_running_status "$id")" "$(check_url_icon "$health_url")" "$local_url"
+        printf "  %-7s %-32s %-10s %-6b 外网 %s\n" "" "" "" "$(check_url_icon "$public_url")" "$public_url"
+        index=$((index + 1))
+    done
 }
 
 show_all_installed_summary() {
-    local ids=() id local_url public_url
-    array_from_lines ids "$(collect_installed_ids)"
-    [ "${#ids[@]}" -gt 0 ] || return 0
-
-    qiqi_section "已安装项目"
-    for id in "${ids[@]}"; do
-        load_project_meta "$id"
-        local_url="$(project_local_url "$id")"
-        public_url="$(project_public_url "$id")"
-        printf "  ${QIQI_GREEN}-${QIQI_PLAIN} ${QIQI_CYAN}%s${QIQI_PLAIN} ${QIQI_WHITE}(%s)${QIQI_PLAIN} | %b\n" "$PROJECT_NAME" "$id" "$(project_running_status "$id")"
-        printf "    内网: %s | 外网: %s\n" "$local_url" "$public_url"
-    done
+    show_installed_projects_table 0
 }
 
 select_project_from_ids() {
@@ -96,9 +129,10 @@ select_project_from_ids() {
 }
 
 install_or_start_project() {
-    local id="$1" source_path target_path local_url public_url
+    local id="$1" source_path target_path local_url public_url was_installed=0
     source_path="$(source_project_path "$id")"
     target_path="$(app_project_path "$id")"
+    project_is_installed "$id" && was_installed=1
 
     if ! project_files_exist "$id"; then
         if ! project_has_template "$id"; then
@@ -127,6 +161,10 @@ install_or_start_project() {
     pink ">>> 正在启动 $id"
     compose_run "$target_path" up -d || return 1
     record_project_image_versions "$id"
+    if [ "$was_installed" -eq 0 ]; then
+        remove_project_install_order "$id"
+        record_project_install_order "$id" || return 1
+    fi
     local_url="$(project_local_url "$id")"
     public_url="$(project_public_url "$id")"
     green "项目已启动: $id"
@@ -177,7 +215,7 @@ update_project() {
 }
 
 delete_project() {
-    local id="$1" path delete_volumes delete_dir delete_nginx nginx_dir conf_file
+    local id="$1" path delete_volumes delete_dir delete_nginx nginx_dir conf_file backup_file
     path="$(app_project_path "$id")"
     project_files_exist "$id" || {
         red "项目尚未安装: $id"
@@ -187,10 +225,11 @@ delete_project() {
     red "即将卸载项目: $id"
     confirm_action "  是否删除 Docker volumes" && delete_volumes=1 || delete_volumes=0
     if [ "$delete_volumes" -eq 1 ]; then
-        compose_run "$path" down --rmi all -v
+        compose_run "$path" down --rmi all -v || return 1
     else
-        compose_run "$path" down --rmi all
+        compose_run "$path" down --rmi all || return 1
     fi
+    remove_project_install_order "$id"
 
     confirm_action "  是否删除项目目录 $path" && delete_dir=1 || delete_dir=0
     if [ "$delete_dir" -eq 1 ]; then
@@ -206,12 +245,23 @@ delete_project() {
         if [ -n "$nginx_dir" ]; then
             conf_file="$(nginx_project_conf "$nginx_dir" "$id")"
             if [ -f "$conf_file" ]; then
+                backup_file="$(mktemp)"
+                cp "$conf_file" "$backup_file" || {
+                    rm -f "$backup_file"
+                    return 1
+                }
                 rm -f "$conf_file"
-                if [ "$delete_dir" -eq 0 ]; then
-                    set_project_conf_value "$id" "PUBLIC_URL" ""
-                fi
                 green "已删除 Nginx 配置: $conf_file"
-                reload_nginx || true
+                if reload_nginx; then
+                    if [ "$delete_dir" -eq 0 ]; then
+                        set_project_conf_value "$id" "PUBLIC_URL" ""
+                    fi
+                    rm -f "$backup_file"
+                else
+                    cp "$backup_file" "$conf_file"
+                    rm -f "$backup_file"
+                    red "Nginx 重载失败，已恢复配置: $conf_file"
+                fi
             else
                 muted "未找到 Nginx 配置: $conf_file"
             fi
@@ -231,7 +281,7 @@ edit_project_conf_interactive() {
     readp "  项目名称 [$PROJECT_NAME] → " input; name="${input:-$PROJECT_NAME}"
     readp "  功能描述 [$DESCRIPTION] → " input; desc="${input:-$DESCRIPTION}"
     readp "  项目地址 [${PROJECT_META_URL:-留空}] → " input; url="${input:-$PROJECT_META_URL}"
-    readp "  镜像版本 [${IMAGE_VERSION:-自动记录}] → " input; image_version="${input:-$IMAGE_VERSION}"
+    readp "  安装镜像 [${IMAGE_VERSION:-自动记录}] → " input; image_version="${input:-$IMAGE_VERSION}"
     health="${HEALTH_URL:-$(project_local_url "$id")}"
     readp "  健康检查地址 [${health:-留空}] → " input; health="${input:-$health}"
     readp "  外网访问地址 [${PUBLIC_URL:-留空}] → " input; public_url="${input:-$PUBLIC_URL}"
@@ -388,22 +438,12 @@ manage_project_loop() {
 }
 
 manage_menu() {
-    local ids=() id i choice
+    local ids=() id choice
     while true; do
         array_from_lines ids "$(collect_installed_ids)"
         clear
         qiqi_banner "$PROJECT_TITLE" "$PROJECT_VERSION" "Docker 项目管理" "$PROJECT_URL"
-        qiqi_section "管理菜单"
-        if [ "${#ids[@]}" -eq 0 ]; then
-            yellow "  没有已安装项目可管理。"
-        else
-            i=1
-            for id in "${ids[@]}"; do
-                load_project_meta "$id"
-                printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN} ${QIQI_WHITE}%s${QIQI_PLAIN} ${QIQI_WHITE}(%s)${QIQI_PLAIN} | %b\n" "$i" "$PROJECT_NAME" "$id" "$(project_running_status "$id")"
-                i=$((i + 1))
-            done
-        fi
+        show_installed_projects_table 1 "${ids[@]}"
         qiqi_menu_item "0" "返回主菜单"
         echo
         readp "  请输入选项 → " choice

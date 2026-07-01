@@ -147,8 +147,44 @@ extract_current_value() {
     local conf="$1" key="$2"
     [ -f "$conf" ] || return 0
     case "$key" in
-        domain) awk '/server_name/ {gsub(";", "", $2); print $2; exit}' "$conf" ;;
-        listen) awk '/listen[[:space:]]+[0-9]+/ {for (i=1;i<=NF;i++) if ($i ~ /^[0-9]+/) {gsub(";", "", $i); print $i; exit}}' "$conf" ;;
+        domain) awk '
+            {
+                for (i=1;i<=NF;i++) {
+                    if ($i == "server_name" && (i + 1) <= NF) {
+                        domain=$(i + 1)
+                        gsub(";", "", domain)
+                        print domain
+                        exit
+                    }
+                }
+            }
+        ' "$conf" ;;
+        listen) awk '
+            /listen[[:space:]]+/ {
+                port=""
+                for (i=1;i<=NF;i++) {
+                    token=$i
+                    gsub(";", "", token)
+                    if (token ~ /^[0-9]+$/) {
+                        port=token
+                        break
+                    }
+                    if (token ~ /:[0-9]+$/) {
+                        port=token
+                        sub(/^.*:/, "", port)
+                        break
+                    }
+                }
+                if (port == "") next
+                if ($0 ~ /[[:space:]]ssl([[:space:];]|$)/) {
+                    print port
+                    done=1
+                    exit
+                }
+                if (first == "") first=port
+            }
+            END { if (!done && first != "") print first }
+        ' "$conf" ;;
         upstream_host) sed -n 's/.*proxy_pass http:\/\/\([^:;]*\):[0-9][0-9]*.*/\1/p' "$conf" | sed -n '1p' ;;
         upstream_port) sed -n 's/.*proxy_pass http:\/\/[^:;]*:\([0-9][0-9]*\).*/\1/p' "$conf" | sed -n '1p' ;;
         cert) awk '/ssl_certificate[[:space:]]+/ && $1 == "ssl_certificate" {gsub(";", "", $2); print $2; exit}' "$conf" ;;
@@ -207,13 +243,10 @@ append_http_redirect_block() {
     local output_file="$1" server_name="$2"
     {
         echo
-        echo "# HTTP 80 端口跳转到 HTTPS 443"
+        echo "# HTTP 到 HTTPS 跳转；不需要时删除整个 server 块。"
         echo "server {"
-        echo "    # 监听普通 HTTP 80 端口"
         echo "    listen 80;"
-        echo "    # 使用与 HTTPS 服务相同的域名"
         printf '    server_name %s;\n' "$server_name"
-        echo "    # 永久重定向到 HTTPS，并保留原始路径和查询参数"
         printf '    return 301 https://$host$request_uri;\n'
         echo "}"
     } >> "$output_file"
@@ -291,7 +324,7 @@ confirm_tmp_conf_write() {
         qiqi_section "配置预览"
         sed -n '1,260p' "$tmp_file"
         echo
-        readp "  确认写入 $target_file ? [y 写入 / n 取消 / e 手动 vim 编辑] → " confirm
+        readp "  确认写入 $target_file ? [Y / N / e 手动vim编辑] → " confirm
         case "$confirm" in
             [Yy]) return 0 ;;
             [Nn]|"") yellow "已取消写入。"; return 1 ;;
@@ -301,82 +334,61 @@ confirm_tmp_conf_write() {
     done
 }
 
-create_manual_nginx_conf_seed() {
-    local id="$1" output_file="$2" default_port upstream_host
-    default_port="${ACCESS_PORT:-$(infer_compose_port "$(project_runtime_path "$id")/docker-compose.yml")}"
-    upstream_host="${ACCESS_HOST:-127.0.0.1}"
-    {
-        echo "# DN_Tools 手动 Nginx 反向代理配置"
-        echo "# 请把 your-domain.com、证书路径、上游端口改成你的真实配置。"
-        echo "server {"
-        echo "    # HTTPS 监听端口；ssl 表示启用 TLS"
-        echo "    listen 443 ssl;"
-        echo "    # 访问域名"
-        echo "    server_name your-domain.com;"
-        echo
-        echo "    # SSL 证书文件路径"
-        echo "    ssl_certificate      /path/to/fullchain.pem;"
-        echo "    # SSL 私钥文件路径"
-        echo "    ssl_certificate_key  /path/to/privkey.pem;"
-        echo
-        echo "    # 客户端上传大小限制，默认 50m"
-        echo "    client_max_body_size 50m;"
-        echo
-        echo "    # 将页面中的 HTTP 资源自动升级为 HTTPS"
-        echo '    add_header Content-Security-Policy "upgrade-insecure-requests" always;'
-        echo
-        echo "    location / {"
-        echo "        # Docker 服务的本机访问地址"
-        printf '        proxy_pass http://%s:%s;\n' "$upstream_host" "${default_port:-3000}"
-        echo
-        echo "        # 使用 HTTP/1.1，兼容 WebSocket 和流式响应"
-        echo "        proxy_http_version 1.1;"
-        echo "        # 保留原始访问域名"
-        printf '        proxy_set_header Host $host;\n'
-        echo "        # 传递客户端真实 IP"
-        printf '        proxy_set_header X-Real-IP $remote_addr;\n'
-        echo "        # 传递完整代理链路 IP"
-        printf '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n'
-        echo "        # 传递原始访问协议"
-        printf '        proxy_set_header X-Forwarded-Proto $scheme;\n'
-        echo "        # 支持 WebSocket 升级"
-        printf '        proxy_set_header Upgrade $http_upgrade;\n'
-        echo "        # 保持 WebSocket 连接升级标记"
-        echo '        proxy_set_header Connection "upgrade";'
-        echo
-        echo "        # 后端读取超时时间"
-        echo "        proxy_read_timeout 120s;"
-        echo "        # 后端发送超时时间"
-        echo "        proxy_send_timeout 120s;"
-        echo "        # 后端连接超时时间"
-        echo "        proxy_connect_timeout 60s;"
-        echo "        # 开启代理缓冲"
-        echo "        proxy_buffering on;"
-        echo "    }"
-        echo "}"
-        echo
-        echo "# HTTP 80 端口跳转到 HTTPS 443；不需要时可删除整个 server 块"
-        echo "server {"
-        echo "    # 监听普通 HTTP 80 端口"
-        echo "    listen 80;"
-        echo "    # 使用与 HTTPS 服务相同的域名"
-        echo "    server_name your-domain.com;"
-        echo "    # 永久重定向到 HTTPS，并保留原始路径和查询参数"
-        printf '    return 301 https://$host$request_uri;\n'
-        echo "}"
-    } > "$output_file"
+create_empty_nginx_conf() {
+    local output_file="$1"
+    : > "$output_file"
 }
 
 write_nginx_conf_from_tmp() {
-    local id="$1" nginx_dir="$2" tmp_file="$3" conf_dir out_file public_url answer
+    local id="$1" nginx_dir="$2" tmp_file="$3" conf_dir out_file public_url answer backup_file had_existing result
+    local main_conf main_backup
     conf_dir="$nginx_dir/conf.d"
     mkdir -p "$conf_dir" || return 1
     out_file="$conf_dir/$id.conf"
-    cp "$tmp_file" "$out_file" || return 1
+    main_conf="$nginx_dir/nginx.conf"
+    backup_file="$(mktemp)"
+    main_backup=""
+    had_existing=0
+    if [ -f "$out_file" ]; then
+        cp "$out_file" "$backup_file" || {
+            rm -f "$backup_file"
+            return 1
+        }
+        had_existing=1
+    fi
+    if [ -f "$main_conf" ]; then
+        main_backup="$(mktemp)"
+        cp "$main_conf" "$main_backup" || {
+            rm -f "$backup_file" "$main_backup"
+            return 1
+        }
+    fi
+
+    cp "$tmp_file" "$out_file" || {
+        rm -f "$backup_file" "$main_backup"
+        return 1
+    }
     green "配置已写入: $out_file"
 
-    ensure_nginx_include "$nginx_dir" || return 1
-    reload_nginx || return 1
+    result=0
+    ensure_nginx_include "$nginx_dir" || result=1
+    [ "$result" -eq 0 ] && reload_nginx || result=1
+    if [ "$result" -ne 0 ]; then
+        if [ "$had_existing" -eq 1 ]; then
+            cp "$backup_file" "$out_file"
+            yellow "Nginx 测试或重载失败，已恢复旧配置: $out_file"
+        else
+            rm -f "$out_file"
+            yellow "Nginx 测试或重载失败，已删除新配置: $out_file"
+        fi
+        if [ -n "$main_backup" ] && [ -f "$main_backup" ]; then
+            cp "$main_backup" "$main_conf"
+            yellow "已恢复 Nginx 主配置: $main_conf"
+        fi
+        rm -f "$backup_file" "$main_backup"
+        return 1
+    fi
+    rm -f "$backup_file" "$main_backup"
 
     public_url="$(public_url_from_conf "$out_file" 2>/dev/null || true)"
     if [ -n "$public_url" ]; then
@@ -398,9 +410,12 @@ manual_edit_nginx_conf() {
     local id="$1" nginx_dir="$2" seed_file="$3" tmp_file out_file
     tmp_file="$(mktemp)"
     if [ -n "$seed_file" ] && [ -f "$seed_file" ]; then
-        cp "$seed_file" "$tmp_file" || return 1
+        cp "$seed_file" "$tmp_file" || {
+            rm -f "$tmp_file"
+            return 1
+        }
     else
-        create_manual_nginx_conf_seed "$id" "$tmp_file"
+        create_empty_nginx_conf "$tmp_file"
     fi
     out_file="$(nginx_project_conf "$nginx_dir" "$id")"
     edit_conf_with_vim "$tmp_file" || {
@@ -439,7 +454,7 @@ clear_nginx_project_meta() {
 }
 
 delete_project_reverse_proxy() {
-    local id="$1" nginx_dir conf_file
+    local id="$1" nginx_dir conf_file backup_file
     nginx_dir="$(detect_nginx_dir)"
     [ -n "$nginx_dir" ] || {
         red "未找到 Nginx 配置目录。"
@@ -451,10 +466,21 @@ delete_project_reverse_proxy() {
         return 0
     fi
     confirm_action "  确认删除 $conf_file" || return 0
+    backup_file="$(mktemp)"
+    cp "$conf_file" "$backup_file" || {
+        rm -f "$backup_file"
+        return 1
+    }
     rm -f "$conf_file"
-    clear_nginx_project_meta "$id"
     green "已删除: $conf_file"
-    reload_nginx
+    if ! reload_nginx; then
+        cp "$backup_file" "$conf_file"
+        rm -f "$backup_file"
+        red "Nginx 重载失败，已恢复配置: $conf_file"
+        return 1
+    fi
+    clear_nginx_project_meta "$id"
+    rm -f "$backup_file"
 }
 
 configure_reverse_proxy() {
@@ -482,13 +508,13 @@ configure_reverse_proxy() {
         echo
         qiqi_menu_item "1" "更新配置"
         qiqi_menu_item "2" "删除配置"
-        qiqi_menu_item "3" "手动编辑配置（vim）"
+        qiqi_menu_item "99" "手动编辑配置（vim）"
         qiqi_menu_item "0" "返回"
         readp "  请输入选项 → " action
         case "$action" in
             1) ;;
             2) delete_project_reverse_proxy "$id"; return $? ;;
-            3) manual_edit_nginx_conf "$id" "$nginx_dir" "$current_conf"; return $? ;;
+            99) manual_edit_nginx_conf "$id" "$nginx_dir" "$current_conf"; return $? ;;
             0) return 0 ;;
             *) red "无效选项。"; return 1 ;;
         esac
@@ -507,7 +533,7 @@ configure_reverse_proxy() {
             readp "  请输入选项 → " action
             case "$action" in
                 1|"") ;;
-                99) manual_edit_nginx_conf "$id" "$nginx_dir" "$template_file"; return $? ;;
+                99) manual_edit_nginx_conf "$id" "$nginx_dir" "$current_conf"; return $? ;;
                 0) return 0 ;;
                 *) red "无效选项。"; return 1 ;;
             esac

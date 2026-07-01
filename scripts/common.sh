@@ -51,6 +51,7 @@ BACKUP_DIR="${BACKUP_DIR:-$TARGET_BASE_DIR/backup}"
 DOCKER_SOURCE_DIR="${DOCKER_SOURCE_DIR:-$TOOL_ROOT/docker}"
 NGINX_CONFIG_SOURCE_DIR="${NGINX_CONFIG_SOURCE_DIR:-$TOOL_ROOT/nginx-config}"
 DNT_CONFIG_DIR_NAME="${DNT_CONFIG_DIR_NAME:-dntool-config}"
+DNT_STATE_DIR_NAME="${DNT_STATE_DIR_NAME:-.dntool}"
 
 PROJECT_NAME=""
 DESCRIPTION=""
@@ -188,6 +189,18 @@ project_config_dir() {
     printf '%s/%s' "$(app_project_path "$1")" "$DNT_CONFIG_DIR_NAME"
 }
 
+dnt_state_dir() {
+    printf '%s/%s' "$TARGET_BASE_DIR" "$DNT_STATE_DIR_NAME"
+}
+
+install_order_file() {
+    printf '%s/install-order.tsv' "$(dnt_state_dir)"
+}
+
+install_order_seq_file() {
+    printf '%s/install-order.seq' "$(dnt_state_dir)"
+}
+
 source_project_config_dir() {
     printf '%s/%s' "$(source_project_path "$1")" "$DNT_CONFIG_DIR_NAME"
 }
@@ -277,8 +290,7 @@ set_project_conf_value() {
         { print }
         END { if (!done) print line }
     ' "$conf_file" > "$tmp"
-    cp "$tmp" "$conf_file"
-    rm -f "$tmp"
+    mv "$tmp" "$conf_file"
 }
 
 write_project_conf_defaults() {
@@ -296,6 +308,21 @@ PUBLIC_URL=""
 EOF
 }
 
+path_import_timestamp() {
+    local path="$1" ts
+    ts="$(stat -c '%W' "$path" 2>/dev/null || true)"
+    case "$ts" in ''|*[!0-9]*|-*) ts="" ;; esac
+    if [ -z "$ts" ] || [ "$ts" -le 0 ] 2>/dev/null; then
+        ts="$(stat -f '%B' "$path" 2>/dev/null || true)"
+        case "$ts" in ''|*[!0-9]*|-*) ts="" ;; esac
+    fi
+    if [ -z "$ts" ] || [ "$ts" -le 0 ] 2>/dev/null; then
+        ts="$(stat -c '%Y' "$path" 2>/dev/null || stat -f '%m' "$path" 2>/dev/null || true)"
+        case "$ts" in ''|*[!0-9]*|-*) ts="0" ;; esac
+    fi
+    printf '%s' "$ts"
+}
+
 list_source_project_ids() {
     local d id
     [ -d "$DOCKER_SOURCE_DIR" ] || return 0
@@ -303,8 +330,8 @@ list_source_project_ids() {
         [ -d "$d" ] || continue
         [ -f "$d/docker-compose.yml" ] || continue
         id="$(basename "$d")"
-        printf '%s\n' "$id"
-    done | sort
+        printf '%s\t%s\n' "$(path_import_timestamp "$d")" "$id"
+    done | LC_ALL=C sort -n -k1,1 -k2,2 | awk -F '\t' '{print $2}'
 }
 
 list_app_project_ids() {
@@ -314,9 +341,9 @@ list_app_project_ids() {
         [ -d "$d" ] || continue
         [ -f "$d/docker-compose.yml" ] || continue
         id="$(basename "$d")"
-        case "$id" in backup|backups) continue ;; esac
-        printf '%s\n' "$id"
-    done | sort
+        case "$id" in backup|backups|"$DNT_STATE_DIR_NAME") continue ;; esac
+        printf '%s\t%s\n' "$(path_import_timestamp "$d")" "$id"
+    done | LC_ALL=C sort -n -k1,1 -k2,2 | awk -F '\t' '{print $2}'
 }
 
 list_custom_app_project_ids() {
@@ -341,11 +368,106 @@ list_project_ids() {
     done < <(list_source_project_ids)
 }
 
-collect_installed_ids() {
+next_install_order() {
+    local order_file seq_file max=0 value
+    order_file="$(install_order_file)"
+    seq_file="$(install_order_seq_file)"
+    if [ -f "$seq_file" ]; then
+        value="$(sed -n '1p' "$seq_file" 2>/dev/null || true)"
+        case "$value" in ''|*[!0-9]*) ;; *) max="$value" ;; esac
+    fi
+    if [ -f "$order_file" ]; then
+        while IFS=$'\t' read -r value _rest; do
+            case "$value" in ''|*[!0-9]*) continue ;; esac
+            [ "$value" -gt "$max" ] 2>/dev/null && max="$value"
+        done < "$order_file"
+    fi
+    printf '%s' "$((max + 1))"
+}
+
+install_order_record_exists() {
+    local id="$1" order_file
+    order_file="$(install_order_file)"
+    [ -f "$order_file" ] || return 1
+    awk -F '\t' -v id="$id" '$2 == id { found=1; exit } END { exit !found }' "$order_file"
+}
+
+record_project_install_order() {
+    local id="$1" order_file seq_file state_dir order now
+    [ -n "$id" ] || return 0
+    install_order_record_exists "$id" && return 0
+    state_dir="$(dnt_state_dir)"
+    order_file="$(install_order_file)"
+    seq_file="$(install_order_seq_file)"
+    mkdir -p "$state_dir" || return 1
+    order="$(next_install_order)"
+    now="$(date +"%Y-%m-%dT%H:%M:%S%z")"
+    printf '%s\t%s\t%s\n' "$order" "$id" "$now" >> "$order_file"
+    printf '%s\n' "$order" > "$seq_file"
+}
+
+remove_project_install_order() {
+    local id="$1" order_file tmp
+    order_file="$(install_order_file)"
+    [ -f "$order_file" ] || return 0
+    tmp="$(mktemp)"
+    awk -F '\t' -v id="$id" '$2 != id { print }' "$order_file" > "$tmp"
+    mv "$tmp" "$order_file"
+}
+
+cleanup_install_order_records() {
+    local order_file tmp order id installed_at seen
+    docker_available && compose_cmd_available || return 0
+    order_file="$(install_order_file)"
+    [ -f "$order_file" ] || return 0
+    tmp="$(mktemp)"
+    seen="|"
+    while IFS=$'\t' read -r order id installed_at; do
+        [ -n "$id" ] || continue
+        case "$seen" in *"|$id|"*) continue ;; esac
+        if project_is_installed "$id"; then
+            printf '%s\t%s\t%s\n' "$order" "$id" "$installed_at"
+            seen="${seen}${id}|"
+        fi
+    done < "$order_file" > "$tmp"
+    mv "$tmp" "$order_file"
+}
+
+ordered_installed_ids_from_state() {
+    local order_file id seen
+    order_file="$(install_order_file)"
+    [ -f "$order_file" ] || return 0
+    seen="|"
+    LC_ALL=C sort -n -k1,1 "$order_file" | while IFS=$'\t' read -r _order id _time; do
+        [ -n "$id" ] || continue
+        case "$seen" in *"|$id|"*) continue ;; esac
+        project_is_installed "$id" && printf '%s\n' "$id"
+        seen="${seen}${id}|"
+    done
+}
+
+missing_installed_ids_from_state() {
     local id
     while IFS= read -r id; do
-        [ -n "$id" ] && project_is_installed "$id" && printf '%s\n' "$id"
+        [ -n "$id" ] || continue
+        project_is_installed "$id" || continue
+        install_order_record_exists "$id" || printf '%s\n' "$id"
     done < <(list_project_ids)
+}
+
+collect_installed_ids() {
+    local id
+    cleanup_install_order_records || true
+    while IFS= read -r id; do
+        [ -n "$id" ] && printf '%s\n' "$id"
+    done < <(ordered_installed_ids_from_state)
+
+    # 兼容旧版本已安装项目：没有顺序记录时，按项目目录导入时间补到队尾。
+    while IFS= read -r id; do
+        [ -n "$id" ] || continue
+        record_project_install_order "$id" || true
+        printf '%s\n' "$id"
+    done < <(missing_installed_ids_from_state)
 }
 
 copy_builtin_project_to_app() {
@@ -459,20 +581,20 @@ project_local_url() {
     printf '%s://%s:%s%s' "${ACCESS_SCHEME:-http}" "${ACCESS_HOST:-127.0.0.1}" "$port" "$clean_path"
 }
 
-check_url() {
+check_url_icon() {
     local url="$1"
     if ! command_exists curl; then
-        printf "${QIQI_GRAY}[未检测]${QIQI_PLAIN}"
+        printf "${QIQI_GRAY}?${QIQI_PLAIN}"
         return 0
     fi
     if [ -z "$url" ] || [ "$url" = "未识别" ] || [ "$url" = "未配置" ]; then
-        printf "${QIQI_GRAY}[未配置]${QIQI_PLAIN}"
+        printf "${QIQI_GRAY}-${QIQI_PLAIN}"
         return 0
     fi
-    if curl -fsS --connect-timeout 3 --max-time 5 "$url" >/dev/null 2>&1; then
-        printf "${QIQI_GREEN}[连通]${QIQI_PLAIN}"
+    if curl -fsS --connect-timeout 1 --max-time 2 "$url" >/dev/null 2>&1; then
+        printf "${QIQI_GREEN}✅${QIQI_PLAIN}"
     else
-        printf "${QIQI_RED}[不可达]${QIQI_PLAIN}"
+        printf "${QIQI_RED}❌${QIQI_PLAIN}"
     fi
 }
 
@@ -506,68 +628,12 @@ project_image_lines() {
     ' "$compose_file"
 }
 
-image_repo_without_tag() {
-    local image="$1" repo
-    repo="${image%@*}"
-    case "$repo" in
-        *:*)
-            if printf '%s' "$repo" | awk -F/ '{print $NF}' | grep -q ':'; then
-                repo="${repo%:*}"
-            fi
-            ;;
-    esac
-    printf '%s' "$repo"
-}
-
-image_tag() {
-    local image="$1" name
-    name="${image%@*}"
-    name="${name##*/}"
-    case "$name" in
-        *:*) printf '%s' "${name##*:}" ;;
-        *) printf 'latest' ;;
-    esac
-}
-
-resolve_pulled_image_version() {
-    local image="$1" repo tag digest image_id
-    repo="$(image_repo_without_tag "$image")"
-    tag="$(image_tag "$image")"
-    digest="$(docker image inspect "$image" --format '{{range .RepoDigests}}{{println .}}{{end}}' 2>/dev/null | sed -n "1p")"
-    if [ -n "$digest" ]; then
-        printf '%s' "$digest"
-        return 0
-    fi
-    if [ "$tag" != "latest" ]; then
-        printf '%s' "$image"
-        return 0
-    fi
-    image_id="$(docker image inspect "$image" --format '{{.Id}}' 2>/dev/null | sed 's/^sha256://')"
-    if [ -n "$image_id" ]; then
-        printf '%s@sha256:%s' "$repo" "$image_id"
-    else
-        printf '%s' "$image"
-    fi
-}
-
 record_project_image_versions() {
-    local id="$1" compose_file image resolved versions
+    local id="$1" compose_file versions
     compose_file="$(app_project_path "$id")/docker-compose.yml"
     [ -f "$compose_file" ] || return 0
-    docker_available || return 0
 
-    versions=""
-    while IFS= read -r image; do
-        [ -n "$image" ] || continue
-        resolved="$(resolve_pulled_image_version "$image")"
-        [ -n "$resolved" ] || resolved="$image"
-        if [ -n "$versions" ]; then
-            versions="$versions, $resolved"
-        else
-            versions="$resolved"
-        fi
-    done < <(project_image_lines "$compose_file")
-
+    versions="$(project_images "$compose_file")"
     [ -n "$versions" ] || return 0
     set_project_conf_value "$id" "IMAGE_VERSION" "$versions"
 }
@@ -599,9 +665,6 @@ placeholder_files() {
     [ -d "$path" ] || return 0
     find "$path" -maxdepth 2 -type f \
         ! -name '*.example' \
-        ! -name 'docker-compose.yml' \
-        ! -name 'compose.yml' \
-        ! -name 'compose.yaml' \
         ! -path '*/data/*' \
         ! -path '*/logs/*' \
         ! -path '*/auth-dir/*' \
@@ -727,8 +790,44 @@ project_public_url() {
         printf '未配置'
         return 0
     }
-    domain="$(awk '/server_name/ {gsub(";", "", $2); print $2; exit}' "$conf")"
-    listen_port="$(awk '/listen[[:space:]]+[0-9]+/ {for (i=1;i<=NF;i++) if ($i ~ /^[0-9]+/) {gsub(";", "", $i); print $i; exit}}' "$conf")"
+    domain="$(awk '
+        {
+            for (i=1;i<=NF;i++) {
+                if ($i == "server_name" && (i + 1) <= NF) {
+                    domain=$(i + 1)
+                    gsub(";", "", domain)
+                    print domain
+                    exit
+                }
+            }
+        }
+    ' "$conf")"
+    listen_port="$(awk '
+        /listen[[:space:]]+/ {
+            port=""
+            for (i=1;i<=NF;i++) {
+                token=$i
+                gsub(";", "", token)
+                if (token ~ /^[0-9]+$/) {
+                    port=token
+                    break
+                }
+                if (token ~ /:[0-9]+$/) {
+                    port=token
+                    sub(/^.*:/, "", port)
+                    break
+                }
+            }
+            if (port == "") next
+            if ($0 ~ /[[:space:]]ssl([[:space:];]|$)/) {
+                print port
+                done=1
+                exit
+            }
+            if (first == "") first=port
+        }
+        END { if (!done && first != "") print first }
+    ' "$conf")"
     [ -n "$domain" ] || {
         printf '未配置'
         return 0
@@ -807,12 +906,13 @@ backup_project_dir() {
     tar -zcf "$backup_file" -C "$(dirname "$path")" "$(basename "$path")" || return 1
 
     count=0
-    for file in $(ls -t "$BACKUP_DIR"/"$id"-*.tar.gz 2>/dev/null); do
+    while IFS= read -r file; do
+        [ -n "$file" ] || continue
         count=$((count + 1))
         if [ "$count" -gt 3 ]; then
             rm -f "$file"
         fi
-    done
+    done < <(find "$BACKUP_DIR" -maxdepth 1 -type f -name "$id-*.tar.gz" -exec ls -t {} + 2>/dev/null)
     green "备份完成: $backup_file"
 }
 

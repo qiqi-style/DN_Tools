@@ -1,65 +1,37 @@
 # DN_Tools
 
-DN_Tools 是一个用于服务器 Docker 项目部署、管理和 Nginx 反向代理配置的 Bash 控制台工具。
+DN_Tools 是一个 Bash 控制台工具，用来统一安装和管理 Docker Compose 项目，并为项目生成 Nginx 反向代理配置。
 
-它适合把常用 AI 代理、接口转换、API 聚合等 Docker Compose 项目整理成模板，然后通过统一菜单安装到 `/app/<project_id>`，再按项目生成 Nginx 反代配置。
+## 核心功能
 
-## 功能特点
+- 扫描内置 Docker 项目和 `/app/<project_id>` 自定义项目
+- 安装、启动、停止、更新、卸载 Docker Compose 项目
+- 显示已安装项目、运行状态、内网/外网地址和连通状态
+- 记录安装时使用的镜像标记，例如 `ghcr.io/basketikun/chatgpt2api:latest`
+- 生成、预览、手动编辑、写入、删除 Nginx 反代配置
+- 更新前备份项目目录，并可同步备份 Nginx 配置
 
-- 启动时检测 Docker、Docker Compose、Nginx 和 `/app` 应用目录状态
-- 自动扫描 `docker/*/docker-compose.yml` 展示内置 Docker 项目
-- 支持安装、启动、停止、更新、卸载、备份 Docker Compose 项目
-- 支持读取和手动维护 `dntool-config/project.conf` 项目信息
-- 支持自定义 `/app/<project_id>/docker-compose.yml` 项目
-- 支持 Nginx 反代模板生成、预览、vim 手动编辑、写入、删除和 reload
-- Nginx 配置 reload 成功后可选择备份到项目的 `dntool-config` 目录，并回写 `PUBLIC_URL`
-- 默认保留安全占位值，首次部署前会提醒替换密钥和密码
-- 复用 `scripts/theme.sh` 的 qiqi-style 终端主题
+## 必要环境
 
-## 内置项目
+- Bash
+- root/sudo 权限
+- Docker 和 Docker Compose
+- Nginx
+- `curl`、`git`
+- `vim`，仅手动编辑 Nginx 配置时需要
+- 默认应用目录：`/app`
 
-当前内置 Docker 模板：
+Docker 和 Nginx 自动安装目前只是提示功能，需要先按服务器环境安装好依赖。
 
-- `new-api`：OpenAI 兼容接口聚合、分发与管理服务
-- `cli-proxy`：CLI Proxy API 代理与远程管理服务
-- `chatgpt2api`：ChatGPT 接口转换与图像生成服务
+## 安装
 
-内置项目位于：
-
-```text
-docker/<project_id>/
-├── docker-compose.yml
-├── dntool-config/
-│   ├── project.conf
-│   └── <project_id>.conf
-└── 应用自己的配置、数据或日志目录
-```
-
-## 一键安装
-
-推荐使用下面这种方式一键安装：
+一键安装：
 
 ```bash
 bash <(curl -sL https://raw.githubusercontent.com/qiqi-style/DN_Tools/main/install.sh)
 ```
 
-非 root 用户可以使用：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/qiqi-style/DN_Tools/main/install.sh | sudo bash
-```
-
-重复运行一键安装会重新拉取项目并覆盖 `/opt/DN_Tools`。用户已经安装或自定义的 Docker 项目应放在 `/app/<project_id>`，不会被一键安装覆盖。
-
-不要把自定义 Docker 项目放在 `/opt/DN_Tools/docker`，该目录只用于仓库内置模板，升级时会随仓库刷新。
-
-安装完成后，在任意目录运行：
-
-```bash
-dntool
-```
-
-## 手动安装
+手动安装：
 
 ```bash
 git clone https://github.com/qiqi-style/DN_Tools.git
@@ -67,149 +39,31 @@ cd DN_Tools
 sudo ./install.sh
 ```
 
-如果只是本地测试菜单，可以直接运行：
+安装后运行：
 
 ```bash
-sudo ./start.sh
+dntool
 ```
 
-## 使用流程
+## 自定义 Docker 项目准备
 
-### 1. 环境检测
-
-运行 `dntool` 后，脚本会检测：
-
-- Docker 是否存在
-- Nginx 是否存在
-- `/app` 应用目录是否存在
-
-当前 Docker 和 Nginx 自动安装功能是占位提示，需要先手动安装依赖。
-
-### 2. Docker 项目安装
-
-进入主菜单后选择：
-
-```text
-[ 1 ] Docker 项目安装
-```
-
-脚本会先检测 `/app/<project_id>` 是否已有 Compose 项目文件，以及 Docker 中是否已经创建过对应 Compose 容器。选择某个内置项目安装时，如果 `/app` 中还没有该项目的 `docker-compose.yml`，会把 `/opt/DN_Tools/docker/<project_id>` 中的完整项目复制到：
-
-```text
-/app/<project_id>/
-```
-
-如果 `/app/<project_id>` 只有目录或配置文件，但 Docker Compose 还没有创建容器，安装菜单仍会显示“未安装 / 选择安装”。只有检测到实际 Compose 容器后，才会显示“已安装 / 进入管理”。内置项目需要覆盖重装时，可在项目管理菜单中选择“重新安装”。
-
-安装和更新项目时会先执行 `docker compose pull`，然后把当前从镜像仓库拉取到的不可变镜像摘要写入：
-
-```text
-/app/<project_id>/dntool-config/project.conf
-```
-
-因此项目详情中的镜像版本不会只显示 `latest`。
-
-后续再次运行一键安装只会更新工具本身，正常不会覆盖 `/app/<project_id>` 中的运行数据和用户配置。
-
-### 3. Docker 项目管理
-
-进入：
-
-```text
-[ 2 ] Docker 项目管理
-```
-
-可以查看项目详情：
-
-- 项目名称
-- 功能说明
-- 项目地址
-- 运行目录
-- 容器名称
-- 镜像版本
-- 当前运行状态
-- 内网访问地址
-- 外网访问地址
-
-支持操作：
-
-- 启动 / 重启项目
-- 停止项目
-- 卸载项目
-- 更新项目并自动备份
-- 配置 Nginx 反代
-- 手动更新 `dntool-config/project.conf`
-
-### 4. Nginx 反代设置
-
-进入：
-
-```text
-[ 3 ] Nginx 反代设置
-```
-
-脚本会让你选择项目和模板，然后填写：
-
-- 绑定域名
-- 上游主机
-- 上游端口
-- HTTPS 监听端口
-- SSL 证书路径
-- SSL 私钥路径
-
-当 HTTPS 监听端口为 `443` 时，脚本会询问是否同时生成 `80 -> 443` 的 HTTPS 跳转配置。上传大小限制固定使用模板中的 `50m`，不再作为交互选项。
-
-写入前会展示配置预览，可选择：
-
-- `y`：写入配置
-- `n`：取消写入
-- `e`：进入 vim 手动编辑，编辑完成后再次预览并二次确认
-
-确认后写入：
-
-```text
-<nginx_dir>/conf.d/<project_id>.conf
-```
-
-Nginx 测试并重载成功后，可选择同步备份到：
-
-```text
-/app/<project_id>/dntool-config/<project_id>.conf
-```
-
-如果该文件已存在，会按普通文件轮转保留旧配置：
-
-```text
-/app/<project_id>/dntool-config/<project_id>.conf.bak1
-/app/<project_id>/dntool-config/<project_id>.conf.bak2
-/app/<project_id>/dntool-config/<project_id>.conf.bak3
-```
-
-同一项目最多保留最近 3 份 Nginx 配置备份。更新项目前进行整目录压缩备份时，也会先对比当前 Nginx 配置与 `dntool-config` 中的副本；相同则不动，不同则先同步并轮转旧副本。
-
-并回写：
-
-```bash
-PUBLIC_URL="https://your-domain.com"
-```
-
-## 自定义 Docker 项目
-
-把自己的项目放到：
+把项目放到：
 
 ```text
 /app/<project_id>/docker-compose.yml
 ```
 
-然后重新进入 Docker 安装菜单，脚本会自动扫描 `/app/*/docker-compose.yml`。不是内置项目的目录会以 `991`、`992`、`993`... 的选项展示，选择后直接安装 / 启动。
-
-推荐同时提供：
+推荐同时准备：
 
 ```text
+# 脚本显示参考项
 /app/<project_id>/dntool-config/project.conf
+
+# nginx反代配置文件
+/app/<project_id>/dntool-config/<project_id>.conf
 ```
 
-示例：
+`project.conf` 示例：
 
 ```bash
 PROJECT_NAME="my-app"
@@ -220,76 +74,34 @@ HEALTH_URL="http://127.0.0.1:3000/"
 PUBLIC_URL=""
 ```
 
-## Nginx 模板
+准备要点：
 
-模板目录：
+- `docker-compose.yml` 中应明确暴露本机访问端口
+- 如果有密钥、密码、Token，请先改掉示例占位值
+- `HEALTH_URL` 用于内网连通检测
+- `<project_id>.conf` 可作为项目专属 Nginx 模板
+- 自定义项目放在 `/app`，不要放进仓库的 `docker/` 目录
 
-```text
-nginx-config/templates/
-```
+## 内置项目
 
-内置模板：
+- `chatgpt2api`
+- `cli-proxy`
+- `new-api`
 
-- `default`：通用 Web 反代
-- `ai-stream`：AI 流式输出、长连接、大文件上传
-- `strict`：更严格的安全头和 TLS 配置
-
-模板固定占位符：
-
-```text
-{{SERVER_NAME}}
-{{LISTEN_PORT}}
-{{UPSTREAM_HOST}}
-{{UPSTREAM_PORT}}
-{{SSL_CERT}}
-{{SSL_KEY}}
-{{CLIENT_MAX_BODY_SIZE}}
-```
-
-## 目录结构
-
-```text
-DN_Tools/
-├── install.sh
-├── start.sh
-├── scripts/
-│   ├── theme.sh
-│   ├── common.sh
-│   ├── docker_manage.sh
-│   └── nginx_manage.sh
-├── docker/
-│   ├── new-api/
-│   ├── cli-proxy/
-│   └── chatgpt2api/
-└── nginx-config/
-    ├── nginx.conf
-    └── templates/
-```
+内置项目模板在仓库 `docker/<project_id>/` 下，项目说明和 Nginx 模板放在各自的 `dntool-config/` 目录。
 
 ## 常用环境变量
-
-安装脚本：
-
-```bash
-INSTALL_DIR=/opt/DN_Tools bash install.sh
-BIN_PATH=/usr/local/bin/dntool bash install.sh
-REPO_URL=https://github.com/qiqi-style/DN_Tools.git bash <(curl -sL https://raw.githubusercontent.com/qiqi-style/DN_Tools/main/install.sh)
-```
-
-运行脚本：
 
 ```bash
 TARGET_BASE_DIR=/app dntool
 NGINX_DIR_OVERRIDE=/etc/nginx dntool
 SKIP_NGINX_RELOAD=1 dntool
+DN_TOOLS_ALLOW_NON_ROOT=1 ./start.sh
 ```
 
 ## 注意事项
 
-- 请先安装 Docker、Docker Compose 和 Nginx
-- 请在启动项目前替换所有 `DN_TOOLS_CHANGE_ME_*` 占位值
-- 默认只绑定 `127.0.0.1` 端口，公网访问建议通过 Nginx 反代
-- 用户自定义项目请放在 `/app/<project_id>`，不要直接放在 `/opt/DN_Tools/docker`
-- 一键安装会重新拉取并覆盖 `/opt/DN_Tools`，请不要在该目录保存用户配置
-- 删除项目、删除 volume、删除 Nginx 配置前脚本会二次确认
-- 运行数据、日志和备份文件默认不会提交到 Git
+- 一键安装会更新工具目录 `/opt/DN_Tools`
+- 用户项目、运行数据和配置应放在 `/app/<project_id>`
+- 删除项目、Docker volumes、Nginx 配置前会二次确认
+- 公网访问建议通过 Nginx 反代，并提前准备好域名和 SSL 证书
