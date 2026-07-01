@@ -581,21 +581,31 @@ project_local_url() {
     printf '%s://%s:%s%s' "${ACCESS_SCHEME:-http}" "${ACCESS_HOST:-127.0.0.1}" "$port" "$clean_path"
 }
 
-check_url_icon() {
+check_url_mark() {
     local url="$1"
     if ! command_exists curl; then
-        printf "${QIQI_GRAY}?${QIQI_PLAIN}"
+        printf "?"
         return 0
     fi
     if [ -z "$url" ] || [ "$url" = "未识别" ] || [ "$url" = "未配置" ]; then
-        printf "${QIQI_GRAY}-${QIQI_PLAIN}"
+        printf "-"
         return 0
     fi
     if curl -fsS --connect-timeout 1 --max-time 2 "$url" >/dev/null 2>&1; then
-        printf "${QIQI_GREEN}✅${QIQI_PLAIN}"
+        printf "✅"
     else
-        printf "${QIQI_RED}❌${QIQI_PLAIN}"
+        printf "❌"
     fi
+}
+
+check_url_icon() {
+    local mark
+    mark="$(check_url_mark "$1")"
+    case "$mark" in
+        ✅) printf "${QIQI_GREEN}%s${QIQI_PLAIN}" "$mark" ;;
+        ❌) printf "${QIQI_RED}%s${QIQI_PLAIN}" "$mark" ;;
+        *) printf "${QIQI_GRAY}%s${QIQI_PLAIN}" "$mark" ;;
+    esac
 }
 
 project_container_names() {
@@ -638,26 +648,36 @@ record_project_image_versions() {
     set_project_conf_value "$id" "IMAGE_VERSION" "$versions"
 }
 
-project_running_status() {
+project_running_status_text() {
     local id="$1" path ids running
     if ! project_files_exist "$id"; then
-        printf "${QIQI_GRAY}未安装${QIQI_PLAIN}"
+        printf "未安装"
         return 0
     fi
     if ! docker_available || ! compose_cmd_available; then
-        printf "${QIQI_GRAY}未检测${QIQI_PLAIN}"
+        printf "未检测"
         return 0
     fi
     path="$(app_project_path "$id")"
     ids="$(compose_run "$path" ps -a -q 2>/dev/null || true)"
     running="$(compose_run "$path" ps --status running -q 2>/dev/null || true)"
     if [ -z "$ids" ]; then
-        printf "${QIQI_GRAY}未安装${QIQI_PLAIN}"
+        printf "未安装"
     elif [ -n "$running" ]; then
-        printf "${QIQI_GREEN}运行中${QIQI_PLAIN}"
+        printf "运行中"
     else
-        printf "${QIQI_ORANGE}未完全运行${QIQI_PLAIN}"
+        printf "未完全运行"
     fi
+}
+
+project_running_status() {
+    local status
+    status="$(project_running_status_text "$1")"
+    case "$status" in
+        运行中) printf "${QIQI_GREEN}%s${QIQI_PLAIN}" "$status" ;;
+        未完全运行) printf "${QIQI_ORANGE}%s${QIQI_PLAIN}" "$status" ;;
+        *) printf "${QIQI_GRAY}%s${QIQI_PLAIN}" "$status" ;;
+    esac
 }
 
 placeholder_files() {

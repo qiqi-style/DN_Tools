@@ -55,8 +55,27 @@ show_project_detail() {
     printf "  ${QIQI_GREEN}外网地址${QIQI_PLAIN}: %s %b\n" "$public_url" "$(check_url_icon "$public_url")"
 }
 
+project_name_cell() {
+    local name="$1" width="${2:-28}"
+    # 项目名通常是英文/数字；过长时截断，避免把状态列挤乱。
+    if [ "${#name}" -gt "$width" ]; then
+        printf '%s..' "${name:0:$((width - 2))}"
+    else
+        printf "%-${width}s" "$name"
+    fi
+}
+
+status_cell() {
+    local status="$1"
+    case "$status" in
+        运行中) printf "${QIQI_GREEN}%-12s${QIQI_PLAIN}" "$status" ;;
+        未完全运行) printf "${QIQI_ORANGE}%-12s${QIQI_PLAIN}" "$status" ;;
+        *) printf "${QIQI_GRAY}%-12s${QIQI_PLAIN}" "$status" ;;
+    esac
+}
+
 show_installed_projects_table() {
-    local with_choices="${1:-0}" ids=() id index label option local_url public_url health_url
+    local with_choices="${1:-0}" ids=() id index option local_url public_url health_url status_text
     shift || true
     if [ "$#" -gt 0 ]; then
         ids=("$@")
@@ -71,15 +90,14 @@ show_installed_projects_table() {
     fi
 
     if [ "$with_choices" = "1" ]; then
-        printf "  ${QIQI_GREEN}%-7s${QIQI_PLAIN} ${QIQI_WHITE}%-32s${QIQI_PLAIN} ${QIQI_WHITE}%-10s${QIQI_PLAIN} ${QIQI_WHITE}%-6s${QIQI_PLAIN} %s\n" "选项" "项目(ID)" "状态" "连通" "地址"
+        printf "  ${QIQI_GREEN}%-8s${QIQI_PLAIN} ${QIQI_WHITE}%-28s${QIQI_PLAIN} ${QIQI_WHITE}%-12s${QIQI_PLAIN} ${QIQI_WHITE}%-10s${QIQI_PLAIN} ${QIQI_WHITE}%-10s${QIQI_PLAIN}\n" "选项" "项目名称" "状态" "内网状态" "外网状态"
     else
-        printf "  ${QIQI_GREEN}%-7s${QIQI_PLAIN} ${QIQI_WHITE}%-32s${QIQI_PLAIN} ${QIQI_WHITE}%-10s${QIQI_PLAIN} ${QIQI_WHITE}%-6s${QIQI_PLAIN} %s\n" "序号" "项目(ID)" "状态" "连通" "地址"
+        printf "  ${QIQI_GREEN}%-8s${QIQI_PLAIN} ${QIQI_WHITE}%-28s${QIQI_PLAIN} ${QIQI_WHITE}%-12s${QIQI_PLAIN} ${QIQI_WHITE}%-10s${QIQI_PLAIN} ${QIQI_WHITE}%-10s${QIQI_PLAIN}\n" "序号" "项目名称" "状态" "内网状态" "外网状态"
     fi
 
     index=1
     for id in "${ids[@]}"; do
         load_project_meta "$id"
-        label="$PROJECT_NAME ($id)"
         if [ "$with_choices" = "1" ]; then
             option="[ $index ]"
         else
@@ -88,8 +106,10 @@ show_installed_projects_table() {
         local_url="$(project_local_url "$id")"
         public_url="$(project_public_url "$id")"
         health_url="${HEALTH_URL:-$local_url}"
-        printf "  ${QIQI_GREEN}%-7s${QIQI_PLAIN} ${QIQI_CYAN}%-32s${QIQI_PLAIN} %b  %-6b 内网 %s\n" "$option" "$label" "$(project_running_status "$id")" "$(check_url_icon "$health_url")" "$local_url"
-        printf "  %-7s %-32s %-10s %-6b 外网 %s\n" "" "" "" "$(check_url_icon "$public_url")" "$public_url"
+        status_text="$(project_running_status_text "$id")"
+        printf "  ${QIQI_GREEN}%-8s${QIQI_PLAIN} ${QIQI_CYAN}%s${QIQI_PLAIN} " "$option" "$(project_name_cell "$PROJECT_NAME" 28)"
+        status_cell "$status_text"
+        printf " %-10s %-10s\n" "$(check_url_mark "$health_url")" "$(check_url_mark "$public_url")"
         index=$((index + 1))
     done
 }
