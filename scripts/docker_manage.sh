@@ -56,7 +56,7 @@ show_project_detail() {
 }
 
 project_name_cell() {
-    local name="$1" width="${2:-28}"
+    local name="$1" width="${2:-26}"
     # 项目名通常是英文/数字；过长时截断，避免把状态列挤乱。
     if [ "${#name}" -gt "$width" ]; then
         printf '%s..' "${name:0:$((width - 2))}"
@@ -65,13 +65,54 @@ project_name_cell() {
     fi
 }
 
+print_header_cell() {
+    local label="$1" width="$2" display_width="$3" color="${4:-$QIQI_WHITE}" spaces
+    spaces=$((width - display_width))
+    [ "$spaces" -lt 0 ] && spaces=0
+    printf "${color}%s${QIQI_PLAIN}" "$label"
+    printf '%*s' "$spaces" ""
+}
+
 status_cell() {
-    local status="$1"
+    local status="$1" display_width spaces width=10 color
     case "$status" in
-        运行中) printf "${QIQI_GREEN}%-12s${QIQI_PLAIN}" "$status" ;;
-        未完全运行) printf "${QIQI_ORANGE}%-12s${QIQI_PLAIN}" "$status" ;;
-        *) printf "${QIQI_GRAY}%-12s${QIQI_PLAIN}" "$status" ;;
+        运行中) display_width=6; color="$QIQI_GREEN" ;;
+        未完全运行) display_width=10; color="$QIQI_ORANGE" ;;
+        未安装|未检测) display_width=6; color="$QIQI_GRAY" ;;
+        *) display_width="${#status}"; color="$QIQI_GRAY" ;;
     esac
+    spaces=$((width - display_width))
+    [ "$spaces" -lt 0 ] && spaces=0
+    printf "${color}%s${QIQI_PLAIN}" "$status"
+    printf '%*s' "$spaces" ""
+}
+
+mark_cell() {
+    local mark="$1" width=6 display_width color spaces
+    case "$mark" in
+        ✅) display_width=2; color="$QIQI_GREEN" ;;
+        ❌) display_width=2; color="$QIQI_RED" ;;
+        *) display_width=1; color="$QIQI_GRAY" ;;
+    esac
+    spaces=$((width - display_width))
+    [ "$spaces" -lt 0 ] && spaces=0
+    printf "${color}%s${QIQI_PLAIN}" "$mark"
+    printf '%*s' "$spaces" ""
+}
+
+print_installed_table_header() {
+    local first_col="$1"
+    printf '  '
+    print_header_cell "$first_col" 8 4 "$QIQI_GREEN"
+    printf '  '
+    print_header_cell "项目名称" 26 8 "$QIQI_WHITE"
+    printf '  '
+    print_header_cell "状态" 10 4 "$QIQI_WHITE"
+    printf '  '
+    print_header_cell "内网" 6 4 "$QIQI_WHITE"
+    printf '  '
+    print_header_cell "外网" 6 4 "$QIQI_WHITE"
+    printf '\n'
 }
 
 show_installed_projects_table() {
@@ -90,9 +131,9 @@ show_installed_projects_table() {
     fi
 
     if [ "$with_choices" = "1" ]; then
-        printf "  ${QIQI_GREEN}%-8s${QIQI_PLAIN} ${QIQI_WHITE}%-28s${QIQI_PLAIN} ${QIQI_WHITE}%-12s${QIQI_PLAIN} ${QIQI_WHITE}%-10s${QIQI_PLAIN} ${QIQI_WHITE}%-10s${QIQI_PLAIN}\n" "选项" "项目名称" "状态" "内网状态" "外网状态"
+        print_installed_table_header "选项"
     else
-        printf "  ${QIQI_GREEN}%-8s${QIQI_PLAIN} ${QIQI_WHITE}%-28s${QIQI_PLAIN} ${QIQI_WHITE}%-12s${QIQI_PLAIN} ${QIQI_WHITE}%-10s${QIQI_PLAIN} ${QIQI_WHITE}%-10s${QIQI_PLAIN}\n" "序号" "项目名称" "状态" "内网状态" "外网状态"
+        print_installed_table_header "序号"
     fi
 
     index=1
@@ -107,9 +148,13 @@ show_installed_projects_table() {
         public_url="$(project_public_url "$id")"
         health_url="${HEALTH_URL:-$local_url}"
         status_text="$(project_running_status_text "$id")"
-        printf "  ${QIQI_GREEN}%-8s${QIQI_PLAIN} ${QIQI_CYAN}%s${QIQI_PLAIN} " "$option" "$(project_name_cell "$PROJECT_NAME" 28)"
+        printf "  ${QIQI_GREEN}%-8s${QIQI_PLAIN}  ${QIQI_CYAN}%s${QIQI_PLAIN}  " "$option" "$(project_name_cell "$PROJECT_NAME" 26)"
         status_cell "$status_text"
-        printf " %-10s %-10s\n" "$(check_url_mark "$health_url")" "$(check_url_mark "$public_url")"
+        printf '  '
+        mark_cell "$(check_url_mark "$health_url")"
+        printf '  '
+        mark_cell "$(check_url_mark "$public_url")"
+        printf '\n'
         index=$((index + 1))
     done
 }
