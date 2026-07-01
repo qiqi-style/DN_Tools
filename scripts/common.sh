@@ -50,10 +50,12 @@ TARGET_BASE_DIR="${TARGET_BASE_DIR:-/app}"
 BACKUP_DIR="${BACKUP_DIR:-$TARGET_BASE_DIR/backup}"
 DOCKER_SOURCE_DIR="${DOCKER_SOURCE_DIR:-$TOOL_ROOT/docker}"
 NGINX_CONFIG_SOURCE_DIR="${NGINX_CONFIG_SOURCE_DIR:-$TOOL_ROOT/nginx-config}"
+DNT_CONFIG_DIR_NAME="${DNT_CONFIG_DIR_NAME:-dntool-config}"
 
 PROJECT_NAME=""
 DESCRIPTION=""
 PROJECT_META_URL=""
+IMAGE_VERSION=""
 ACCESS_SCHEME=""
 ACCESS_HOST=""
 ACCESS_PORT=""
@@ -135,12 +137,13 @@ reset_project_meta() {
     PROJECT_NAME="$id"
     DESCRIPTION="自定义 Docker 项目"
     PROJECT_META_URL=""
-    ACCESS_SCHEME="http"
-    ACCESS_HOST="127.0.0.1"
+    IMAGE_VERSION=""
+    ACCESS_SCHEME=""
+    ACCESS_HOST=""
     ACCESS_PORT=""
-    ACCESS_PATH="/"
+    ACCESS_PATH=""
     HEALTH_URL=""
-    NGINX_TEMPLATE="default"
+    NGINX_TEMPLATE=""
     PUBLIC_URL=""
 }
 
@@ -161,6 +164,7 @@ read_project_conf() {
             PROJECT_NAME) PROJECT_NAME="$value" ;;
             DESCRIPTION) DESCRIPTION="$value" ;;
             PROJECT_URL) PROJECT_META_URL="$value" ;;
+            IMAGE_VERSION|IMAGE_VERSIONS) IMAGE_VERSION="$value" ;;
             ACCESS_SCHEME) ACCESS_SCHEME="$value" ;;
             ACCESS_HOST) ACCESS_HOST="$value" ;;
             ACCESS_PORT) ACCESS_PORT="$value" ;;
@@ -180,16 +184,37 @@ app_project_path() {
     printf '%s/%s' "$TARGET_BASE_DIR" "$1"
 }
 
+project_config_dir() {
+    printf '%s/%s' "$(app_project_path "$1")" "$DNT_CONFIG_DIR_NAME"
+}
+
+source_project_config_dir() {
+    printf '%s/%s' "$(source_project_path "$1")" "$DNT_CONFIG_DIR_NAME"
+}
+
 project_has_template() {
     [ -f "$(source_project_path "$1")/docker-compose.yml" ]
 }
 
-project_is_installed() {
+project_files_exist() {
     [ -f "$(app_project_path "$1")/docker-compose.yml" ]
 }
 
+project_docker_container_ids() {
+    local id="$1" path
+    project_files_exist "$id" || return 0
+    docker_available || return 0
+    compose_cmd_available || return 0
+    path="$(app_project_path "$id")"
+    compose_run "$path" ps -a -q 2>/dev/null || true
+}
+
+project_is_installed() {
+    [ -n "$(project_docker_container_ids "$1")" ]
+}
+
 project_runtime_path() {
-    if project_is_installed "$1"; then
+    if project_files_exist "$1"; then
         app_project_path "$1"
     else
         source_project_path "$1"
@@ -198,8 +223,12 @@ project_runtime_path() {
 
 project_conf_file() {
     local id="$1"
-    if [ -f "$(app_project_path "$id")/project.conf" ]; then
+    if [ -f "$(project_config_dir "$id")/project.conf" ]; then
+        printf '%s/project.conf' "$(project_config_dir "$id")"
+    elif [ -f "$(app_project_path "$id")/project.conf" ]; then
         printf '%s/project.conf' "$(app_project_path "$id")"
+    elif [ -f "$(source_project_config_dir "$id")/project.conf" ]; then
+        printf '%s/project.conf' "$(source_project_config_dir "$id")"
     elif [ -f "$(source_project_path "$id")/project.conf" ]; then
         printf '%s/project.conf' "$(source_project_path "$id")"
     fi
@@ -207,9 +236,23 @@ project_conf_file() {
 
 project_conf_file_for_write() {
     local id="$1" path
-    path="$(app_project_path "$id")"
+    path="$(project_config_dir "$id")"
     mkdir -p "$path"
     printf '%s/project.conf' "$path"
+}
+
+ensure_project_conf_file() {
+    local id="$1" conf_file existing
+    conf_file="$(project_conf_file_for_write "$id")"
+    if [ ! -f "$conf_file" ]; then
+        existing="$(project_conf_file "$id")"
+        if [ -n "$existing" ] && [ "$existing" != "$conf_file" ]; then
+            cp "$existing" "$conf_file"
+        else
+            write_project_conf_defaults "$id" "$conf_file"
+        fi
+    fi
+    printf '%s' "$conf_file"
 }
 
 load_project_meta() {
@@ -225,10 +268,7 @@ quote_conf_value() {
 
 set_project_conf_value() {
     local id="$1" key="$2" value="$3" conf_file tmp quoted
-    conf_file="$(project_conf_file_for_write "$id")"
-    if [ ! -f "$conf_file" ]; then
-        write_project_conf_defaults "$id" "$conf_file"
-    fi
+    conf_file="$(ensure_project_conf_file "$id")"
     quoted="$(quote_conf_value "$value")"
     tmp="$(mktemp)"
     awk -v key="$key" -v value="$quoted" '
@@ -250,12 +290,8 @@ write_project_conf_defaults() {
 PROJECT_NAME="$id"
 DESCRIPTION="自定义 Docker 项目"
 PROJECT_URL=""
-ACCESS_SCHEME="http"
-ACCESS_HOST="127.0.0.1"
-ACCESS_PORT="$port"
-ACCESS_PATH="/"
+IMAGE_VERSION=""
 HEALTH_URL="$health"
-NGINX_TEMPLATE="default"
 PUBLIC_URL=""
 EOF
 }
@@ -313,7 +349,7 @@ collect_installed_ids() {
 }
 
 copy_builtin_project_to_app() {
-    local id="$1" mode="${2:-keep}" source_path target_path
+    local id="$1" mode="${2:-keep}" source_path target_path merge_keep=0
     source_path="$(source_project_path "$id")"
     target_path="$(app_project_path "$id")"
 
@@ -328,17 +364,22 @@ copy_builtin_project_to_app() {
                 muted ">>> $target_path 已存在，保留现有项目。"
                 return 0
             fi
-            yellow ">>> $target_path 已存在但不是 Docker Compose 项目，已跳过。"
-            return 1
+            yellow ">>> $target_path 已存在但尚无 docker-compose.yml，将补齐内置项目文件。"
+            merge_keep=1
+        else
+            rm -rf "$target_path"
         fi
-        rm -rf "$target_path"
     fi
 
     mkdir -p "$TARGET_BASE_DIR" || return 1
     mkdir -p "$target_path" || return 1
     pink ">>> 正在复制内置项目到 $target_path"
-    cp -a "$source_path/." "$target_path/" || return 1
-    [ -f "$target_path/project.conf" ] || write_project_conf_defaults "$id" "$target_path/project.conf"
+    if [ "$merge_keep" -eq 1 ]; then
+        cp -a -n "$source_path/." "$target_path/" || return 1
+    else
+        cp -a "$source_path/." "$target_path/" || return 1
+    fi
+    ensure_project_conf_file "$id" >/dev/null
 }
 
 reinstall_builtin_project() {
@@ -403,6 +444,10 @@ infer_compose_port() {
 project_local_url() {
     local id="$1" port clean_path
     load_project_meta "$id"
+    if [ -n "$HEALTH_URL" ]; then
+        printf '%s' "$HEALTH_URL"
+        return 0
+    fi
     port="$ACCESS_PORT"
     [ -n "$port" ] || port="$(infer_compose_port "$(project_runtime_path "$id")/docker-compose.yml")"
     if [ -z "$port" ]; then
@@ -446,18 +491,90 @@ project_container_names() {
 project_images() {
     local compose_file="$1"
     [ -f "$compose_file" ] || return 0
+    project_image_lines "$compose_file" | awk 'BEGIN { first=1 } { if (!first) printf ", "; printf "%s", $0; first=0 } END { if (!first) printf "\n" }'
+}
+
+project_image_lines() {
+    local compose_file="$1"
+    [ -f "$compose_file" ] || return 0
     awk '
         /^[[:space:]]*image:[[:space:]]*/ {
             sub(/^[^:]*:[[:space:]]*/, "")
             gsub(/[" ]/, "")
             print
         }
-    ' "$compose_file" | awk 'BEGIN { first=1 } { if (!first) printf ", "; printf "%s", $0; first=0 } END { if (!first) printf "\n" }'
+    ' "$compose_file"
+}
+
+image_repo_without_tag() {
+    local image="$1" repo
+    repo="${image%@*}"
+    case "$repo" in
+        *:*)
+            if printf '%s' "$repo" | awk -F/ '{print $NF}' | grep -q ':'; then
+                repo="${repo%:*}"
+            fi
+            ;;
+    esac
+    printf '%s' "$repo"
+}
+
+image_tag() {
+    local image="$1" name
+    name="${image%@*}"
+    name="${name##*/}"
+    case "$name" in
+        *:*) printf '%s' "${name##*:}" ;;
+        *) printf 'latest' ;;
+    esac
+}
+
+resolve_pulled_image_version() {
+    local image="$1" repo tag digest image_id
+    repo="$(image_repo_without_tag "$image")"
+    tag="$(image_tag "$image")"
+    digest="$(docker image inspect "$image" --format '{{range .RepoDigests}}{{println .}}{{end}}' 2>/dev/null | sed -n "1p")"
+    if [ -n "$digest" ]; then
+        printf '%s' "$digest"
+        return 0
+    fi
+    if [ "$tag" != "latest" ]; then
+        printf '%s' "$image"
+        return 0
+    fi
+    image_id="$(docker image inspect "$image" --format '{{.Id}}' 2>/dev/null | sed 's/^sha256://')"
+    if [ -n "$image_id" ]; then
+        printf '%s@sha256:%s' "$repo" "$image_id"
+    else
+        printf '%s' "$image"
+    fi
+}
+
+record_project_image_versions() {
+    local id="$1" compose_file image resolved versions
+    compose_file="$(app_project_path "$id")/docker-compose.yml"
+    [ -f "$compose_file" ] || return 0
+    docker_available || return 0
+
+    versions=""
+    while IFS= read -r image; do
+        [ -n "$image" ] || continue
+        resolved="$(resolve_pulled_image_version "$image")"
+        [ -n "$resolved" ] || resolved="$image"
+        if [ -n "$versions" ]; then
+            versions="$versions, $resolved"
+        else
+            versions="$resolved"
+        fi
+    done < <(project_image_lines "$compose_file")
+
+    [ -n "$versions" ] || return 0
+    set_project_conf_value "$id" "IMAGE_VERSION" "$versions"
 }
 
 project_running_status() {
     local id="$1" path ids running
-    if ! project_is_installed "$id"; then
+    if ! project_files_exist "$id"; then
         printf "${QIQI_GRAY}未安装${QIQI_PLAIN}"
         return 0
     fi
@@ -466,10 +583,10 @@ project_running_status() {
         return 0
     fi
     path="$(app_project_path "$id")"
-    ids="$(compose_run "$path" ps -q 2>/dev/null || true)"
+    ids="$(compose_run "$path" ps -a -q 2>/dev/null || true)"
     running="$(compose_run "$path" ps --status running -q 2>/dev/null || true)"
     if [ -z "$ids" ]; then
-        printf "${QIQI_RED}已停止${QIQI_PLAIN}"
+        printf "${QIQI_GRAY}未安装${QIQI_PLAIN}"
     elif [ -n "$running" ]; then
         printf "${QIQI_GREEN}运行中${QIQI_PLAIN}"
     else
@@ -532,6 +649,64 @@ detect_nginx_dir() {
 nginx_project_conf() {
     local nginx_dir="$1" id="$2"
     printf '%s/conf.d/%s.conf' "$nginx_dir" "$id"
+}
+
+project_nginx_conf_file() {
+    local id="$1" dir file
+    for dir in "$(project_config_dir "$id")" "$(source_project_config_dir "$id")"; do
+        [ -d "$dir" ] || continue
+        for file in "$dir/$id.conf" "$dir/nginx.conf"; do
+            [ -f "$file" ] && { printf '%s' "$file"; return 0; }
+        done
+        for file in "$dir"/*.conf; do
+            [ -f "$file" ] || continue
+            [ "$(basename "$file")" = "project.conf" ] && continue
+            printf '%s' "$file"
+            return 0
+        done
+    done
+}
+
+rotate_numbered_conf_backups() {
+    local current_file="$1"
+    [ -f "$current_file" ] || return 0
+
+    rm -f "$current_file.bak3"
+    [ -f "$current_file.bak2" ] && mv "$current_file.bak2" "$current_file.bak3"
+    [ -f "$current_file.bak1" ] && mv "$current_file.bak1" "$current_file.bak2"
+    mv "$current_file" "$current_file.bak1"
+}
+
+sync_nginx_conf_to_project() {
+    local id="$1" conf_file="$2" backup_dir current_file
+    [ -f "$conf_file" ] || {
+        red "错误: Nginx 配置不存在，无法同步: $conf_file"
+        return 1
+    }
+
+    backup_dir="$(project_config_dir "$id")"
+    current_file="$backup_dir/$id.conf"
+    mkdir -p "$backup_dir" || return 1
+
+    if [ -f "$current_file" ] && cmp -s "$conf_file" "$current_file"; then
+        muted "dntool-config 中的 Nginx 配置已是最新: $current_file"
+        return 0
+    fi
+
+    rotate_numbered_conf_backups "$current_file" || return 1
+    cp "$conf_file" "$current_file" || return 1
+    green "已同步 Nginx 配置到: $current_file"
+    muted "旧配置最多保留 3 份: $current_file.bak1 / .bak2 / .bak3"
+}
+
+sync_current_nginx_conf_to_project_if_changed() {
+    local id="$1" nginx_dir conf_file
+    nginx_dir="$(detect_nginx_dir)"
+    [ -n "$nginx_dir" ] || return 0
+
+    conf_file="$(nginx_project_conf "$nginx_dir" "$id")"
+    [ -f "$conf_file" ] || return 0
+    sync_nginx_conf_to_project "$id" "$conf_file"
 }
 
 project_public_url() {
@@ -624,6 +799,7 @@ backup_project_dir() {
         red "错误: 项目未安装到 $path，无法备份。"
         return 1
     }
+    sync_current_nginx_conf_to_project_if_changed "$id" || return 1
     mkdir -p "$BACKUP_DIR"
     timestamp="$(date +"%Y%m%d-%H%M%S")"
     backup_file="$BACKUP_DIR/${id}-${timestamp}.tar.gz"

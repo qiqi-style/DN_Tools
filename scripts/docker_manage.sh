@@ -33,7 +33,7 @@ show_project_detail() {
     public_url="$(project_public_url "$id")"
     health_url="${HEALTH_URL:-$local_url}"
     containers="$(project_container_names "$compose_file")"
-    images="$(project_images "$compose_file")"
+    images="${IMAGE_VERSION:-$(project_images "$compose_file")}"
     [ -n "$containers" ] || containers="未识别"
     [ -n "$images" ] || images="未识别"
 
@@ -47,7 +47,7 @@ show_project_detail() {
     printf "  ${QIQI_GREEN}当前状态${QIQI_PLAIN}: %b\n" "$(project_running_status "$id")"
     printf "  ${QIQI_GREEN}内网地址${QIQI_PLAIN}: %s %b\n" "$local_url" "$(check_url "$health_url")"
     printf "  ${QIQI_GREEN}外网地址${QIQI_PLAIN}: %s %b\n" "$public_url" "$(check_url "$public_url")"
-    printf "  ${QIQI_GREEN}最新版本${QIQI_PLAIN}: 运行更新时通过 docker compose pull 获取\n"
+    printf "  ${QIQI_GREEN}版本记录${QIQI_PLAIN}: 安装/更新时通过 docker compose pull 写入 dntool-config/project.conf\n"
 }
 
 show_all_installed_summary() {
@@ -100,7 +100,7 @@ install_or_start_project() {
     source_path="$(source_project_path "$id")"
     target_path="$(app_project_path "$id")"
 
-    if ! project_is_installed "$id"; then
+    if ! project_files_exist "$id"; then
         if ! project_has_template "$id"; then
             red "未找到内置模板: $source_path/docker-compose.yml"
             muted "自定义项目请先准备 $target_path/docker-compose.yml。"
@@ -109,7 +109,7 @@ install_or_start_project() {
         copy_builtin_project_to_app "$id" keep || return 1
     fi
 
-    [ -f "$target_path/project.conf" ] || write_project_conf_defaults "$id" "$target_path/project.conf"
+    ensure_project_conf_file "$id" >/dev/null
     confirm_no_placeholder_or_continue "$target_path" || {
         yellow "已取消启动。"
         return 1
@@ -120,8 +120,13 @@ install_or_start_project() {
         return 1
     }
 
+    pink ">>> 正在拉取 $id 镜像"
+    compose_run "$target_path" pull || return 1
+    record_project_image_versions "$id"
+
     pink ">>> 正在启动 $id"
     compose_run "$target_path" up -d || return 1
+    record_project_image_versions "$id"
     local_url="$(project_local_url "$id")"
     public_url="$(project_public_url "$id")"
     green "项目已启动: $id"
@@ -131,7 +136,7 @@ install_or_start_project() {
 
 stop_project() {
     local id="$1"
-    project_is_installed "$id" || {
+    project_files_exist "$id" || {
         red "项目尚未安装: $id"
         return 1
     }
@@ -141,7 +146,7 @@ stop_project() {
 
 restart_project() {
     local id="$1" path
-    project_is_installed "$id" || {
+    project_files_exist "$id" || {
         red "项目尚未安装: $id"
         return 1
     }
@@ -156,7 +161,7 @@ restart_project() {
 
 update_project() {
     local id="$1" path
-    project_is_installed "$id" || {
+    project_files_exist "$id" || {
         red "项目尚未安装: $id"
         return 1
     }
@@ -164,7 +169,9 @@ update_project() {
     backup_project_dir "$id" || return 1
     pink ">>> 正在拉取镜像并更新 $id"
     compose_run "$path" pull || return 1
+    record_project_image_versions "$id"
     compose_run "$path" up -d || return 1
+    record_project_image_versions "$id"
     docker image prune -f >/dev/null 2>&1 || true
     green "项目更新完成: $id"
 }
@@ -172,7 +179,7 @@ update_project() {
 delete_project() {
     local id="$1" path delete_volumes delete_dir delete_nginx nginx_dir conf_file
     path="$(app_project_path "$id")"
-    project_is_installed "$id" || {
+    project_files_exist "$id" || {
         red "项目尚未安装: $id"
         return 1
     }
@@ -215,35 +222,26 @@ delete_project() {
 }
 
 edit_project_conf_interactive() {
-    local id="$1" conf_file name desc url scheme host port path health template public_url input
-    conf_file="$(project_conf_file_for_write "$id")"
-    [ -f "$conf_file" ] || write_project_conf_defaults "$id" "$conf_file"
+    local id="$1" conf_file name desc url image_version health public_url input
+    conf_file="$(ensure_project_conf_file "$id")"
     load_project_meta "$id"
 
-    qiqi_section "手动更新 project.conf"
+    qiqi_section "手动更新 dntool-config/project.conf"
     muted "直接回车会保留当前值。"
     readp "  项目名称 [$PROJECT_NAME] → " input; name="${input:-$PROJECT_NAME}"
     readp "  功能描述 [$DESCRIPTION] → " input; desc="${input:-$DESCRIPTION}"
     readp "  项目地址 [${PROJECT_META_URL:-留空}] → " input; url="${input:-$PROJECT_META_URL}"
-    readp "  内网协议 [${ACCESS_SCHEME:-http}] → " input; scheme="${input:-${ACCESS_SCHEME:-http}}"
-    readp "  内网主机 [${ACCESS_HOST:-127.0.0.1}] → " input; host="${input:-${ACCESS_HOST:-127.0.0.1}}"
-    readp "  内网端口 [${ACCESS_PORT:-自动识别}] → " input; port="${input:-$ACCESS_PORT}"
-    readp "  访问路径 [${ACCESS_PATH:-/}] → " input; path="${input:-${ACCESS_PATH:-/}}"
-    health="${HEALTH_URL:-${scheme}://${host}:${port}${path}}"
+    readp "  镜像版本 [${IMAGE_VERSION:-自动记录}] → " input; image_version="${input:-$IMAGE_VERSION}"
+    health="${HEALTH_URL:-$(project_local_url "$id")}"
     readp "  健康检查地址 [${health:-留空}] → " input; health="${input:-$health}"
-    readp "  默认 Nginx 模板 [${NGINX_TEMPLATE:-default}] → " input; template="${input:-${NGINX_TEMPLATE:-default}}"
     readp "  外网访问地址 [${PUBLIC_URL:-留空}] → " input; public_url="${input:-$PUBLIC_URL}"
 
     cat > "$conf_file" << EOF
 PROJECT_NAME="$name"
 DESCRIPTION="$desc"
 PROJECT_URL="$url"
-ACCESS_SCHEME="$scheme"
-ACCESS_HOST="$host"
-ACCESS_PORT="$port"
-ACCESS_PATH="$path"
+IMAGE_VERSION="$image_version"
 HEALTH_URL="$health"
-NGINX_TEMPLATE="$template"
 PUBLIC_URL="$public_url"
 EOF
     green "已更新: $conf_file"
@@ -252,7 +250,7 @@ EOF
 show_custom_project_help() {
     qiqi_section "自定义 Docker 项目"
     muted "请手动上传项目到: $TARGET_BASE_DIR/<项目ID>/docker-compose.yml"
-    muted "可选文件: project.conf、Nginx 或应用自己的配置文件。"
+    muted "可选文件: dntool-config/project.conf、dntool-config/<项目ID>.conf 或应用自己的配置文件。"
     muted "上传完成后重新进入 Docker 项目安装菜单，会以 991、992... 显示。"
 }
 
@@ -265,8 +263,13 @@ select_custom_project_by_choice() {
     fi
     id="${custom_ids[$index]}"
     target_path="$(app_project_path "$id")"
-    [ -f "$target_path/project.conf" ] || write_project_conf_defaults "$id" "$target_path/project.conf"
-    manage_project_loop "$id"
+    ensure_project_conf_file "$id" >/dev/null
+    if project_is_installed "$id"; then
+        manage_project_loop "$id"
+    else
+        install_or_start_project "$id"
+        pause
+    fi
 }
 
 install_builtin_project_by_choice() {
@@ -314,7 +317,11 @@ install_menu() {
             for id in "${custom_ids[@]}"; do
                 menu_no=$((991 + i))
                 load_project_meta "$id"
-                status="${QIQI_GREEN}已安装 / 进入管理${QIQI_PLAIN}"
+                if project_is_installed "$id"; then
+                    status="${QIQI_GREEN}已安装 / 进入管理${QIQI_PLAIN}"
+                else
+                    status="${QIQI_WHITE}未安装 / 选择安装${QIQI_PLAIN}"
+                fi
                 printf "  ${QIQI_GREEN}[ %s ]${QIQI_PLAIN} ${QIQI_WHITE}%s${QIQI_PLAIN} （%b）\n" "$menu_no" "$PROJECT_NAME" "$status"
                 i=$((i + 1))
             done
@@ -354,7 +361,7 @@ manage_project_loop() {
         qiqi_menu_item "3" "卸载项目"
         qiqi_menu_item "4" "更新项目（先备份）"
         qiqi_menu_item "5" "Nginx 反代设置"
-        qiqi_menu_item "6" "手动更新 project.conf"
+        qiqi_menu_item "6" "手动更新项目显示配置"
         project_has_template "$id" && qiqi_menu_item "7" "重新安装（覆盖内置项目）"
         qiqi_menu_item "0" "返回"
         echo
