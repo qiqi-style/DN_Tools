@@ -240,6 +240,8 @@ project_conf_file() {
         printf '%s/project.conf' "$(project_config_dir "$id")"
     elif [ -f "$(app_project_path "$id")/project.conf" ]; then
         printf '%s/project.conf' "$(app_project_path "$id")"
+    elif project_files_exist "$id"; then
+        return 0
     elif [ -f "$(source_project_config_dir "$id")/project.conf" ]; then
         printf '%s/project.conf' "$(source_project_config_dir "$id")"
     elif [ -f "$(source_project_path "$id")/project.conf" ]; then

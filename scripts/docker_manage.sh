@@ -205,7 +205,14 @@ install_or_start_project() {
             muted "自定义项目请先准备 $target_path/docker-compose.yml。"
             return 1
         fi
+        yellow "未找到 $target_path/docker-compose.yml。"
+        confirm_action "  是否使用默认项目配置安装 $id" || {
+            yellow "已取消安装。"
+            return 1
+        }
         copy_builtin_project_to_app "$id" keep || return 1
+    else
+        muted "检测到 $target_path/docker-compose.yml，优先使用 /app 下的项目配置。"
     fi
 
     ensure_project_conf_file "$id" >/dev/null
@@ -301,7 +308,7 @@ delete_project() {
         rm -rf "$path"
         green "项目目录已删除。"
     else
-        yellow "已保留项目目录。"
+        yellow "已保留项目目录和 dntool-config。"
     fi
 
     confirm_action "  是否同步删除 Nginx 反代配置" && delete_nginx=1 || delete_nginx=0
@@ -318,9 +325,6 @@ delete_project() {
                 rm -f "$conf_file"
                 green "已删除 Nginx 配置: $conf_file"
                 if reload_nginx; then
-                    if [ "$delete_dir" -eq 0 ]; then
-                        set_project_conf_value "$id" "PUBLIC_URL" ""
-                    fi
                     rm -f "$backup_file"
                 else
                     cp "$backup_file" "$conf_file"
