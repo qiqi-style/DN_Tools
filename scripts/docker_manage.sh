@@ -269,7 +269,7 @@ update_project() {
         return 1
     }
     path="$(app_project_path "$id")"
-    backup_project_dir "$id" || return 1
+    backup_project_dir_for_update "$id" || return 1
     pink ">>> 正在拉取镜像并更新 $id"
     compose_run "$path" pull || return 1
     record_project_image_versions "$id"
@@ -474,7 +474,7 @@ manage_project_loop() {
         qiqi_menu_item "1" "启动 / 重启项目"
         qiqi_menu_item "2" "停止项目"
         qiqi_menu_item "3" "卸载项目"
-        qiqi_menu_item "4" "更新项目（先备份）"
+        qiqi_menu_item "4" "更新项目（备份确认）"
         qiqi_menu_item "5" "Nginx 反代设置"
         qiqi_menu_item "6" "手动更新项目显示配置"
         project_has_template "$id" && qiqi_menu_item "7" "重新安装（覆盖内置项目）"

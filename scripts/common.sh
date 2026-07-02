@@ -911,6 +911,28 @@ reload_nginx() {
     nginx -s reload
 }
 
+project_backup_file_for_timestamp() {
+    local id="$1" timestamp="$2" backup_file index
+    backup_file="$BACKUP_DIR/${id}-${timestamp}.tar.gz"
+    if [ ! -e "$backup_file" ]; then
+        printf '%s' "$backup_file"
+        return 0
+    fi
+
+    index=2
+    while [ -e "$BACKUP_DIR/${id}-${timestamp}-${index}.tar.gz" ]; do
+        index=$((index + 1))
+    done
+    printf '%s' "$BACKUP_DIR/${id}-${timestamp}-${index}.tar.gz"
+}
+
+project_has_today_backup() {
+    local id="$1" today
+    today="$(date +"%Y%m%d")"
+    [ -d "$BACKUP_DIR" ] || return 1
+    find "$BACKUP_DIR" -maxdepth 1 -type f -name "$id-${today}-*.tar.gz" -print -quit 2>/dev/null | grep -q .
+}
+
 backup_project_dir() {
     local id="$1" path timestamp backup_file count file
     path="$(app_project_path "$id")"
@@ -920,8 +942,8 @@ backup_project_dir() {
     }
     sync_current_nginx_conf_to_project_if_changed "$id" || return 1
     mkdir -p "$BACKUP_DIR"
-    timestamp="$(date +"%Y%m%d-%H%M%S")"
-    backup_file="$BACKUP_DIR/${id}-${timestamp}.tar.gz"
+    timestamp="$(date +"%Y%m%d-%H%M")"
+    backup_file="$(project_backup_file_for_timestamp "$id" "$timestamp")"
     pink ">>> 正在备份 $id 到 $backup_file"
     tar -zcf "$backup_file" -C "$(dirname "$path")" "$(basename "$path")" || return 1
 
@@ -934,6 +956,19 @@ backup_project_dir() {
         fi
     done < <(find "$BACKUP_DIR" -maxdepth 1 -type f -name "$id-*.tar.gz" -exec ls -t {} + 2>/dev/null)
     green "备份完成: $backup_file"
+}
+
+backup_project_dir_for_update() {
+    local id="$1" answer
+    if project_has_today_backup "$id"; then
+        yellow "检测到今天已有 $id 的更新备份。"
+        readp "  今日已更新备份，是否再次备份？[y/N] → " answer
+        if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+            yellow "已跳过备份，仅执行更新。"
+            return 0
+        fi
+    fi
+    backup_project_dir "$id"
 }
 
 confirm_action() {
