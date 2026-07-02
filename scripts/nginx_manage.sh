@@ -487,6 +487,7 @@ configure_reverse_proxy() {
     local id="${1:-}" nginx_dir current_conf defaults_conf project_conf template_file tmp_file target_file default_port
     local old_domain old_listen old_host old_port old_cert old_key old_body
     local action domain upstream_host upstream_port listen_port ssl_cert ssl_key body_size result
+    local use_project_conf_direct=0
 
     nginx_dir="$(detect_nginx_dir)"
     if [ -z "$nginx_dir" ]; then
@@ -532,7 +533,7 @@ configure_reverse_proxy() {
             qiqi_menu_item "0" "返回"
             readp "  请输入选项 → " action
             case "$action" in
-                1|"") ;;
+                1|"") use_project_conf_direct=1 ;;
                 99) manual_edit_nginx_conf "$id" "$nginx_dir" "$current_conf"; return $? ;;
                 0) return 0 ;;
                 *) red "无效选项。"; return 1 ;;
@@ -551,6 +552,23 @@ configure_reverse_proxy() {
             red "模板不存在: $template_file"
             return 1
         }
+    fi
+
+    if [ "$use_project_conf_direct" -eq 1 ]; then
+        tmp_file="$(mktemp)"
+        cp "$template_file" "$tmp_file" || {
+            rm -f "$tmp_file"
+            return 1
+        }
+        target_file="$(nginx_project_conf "$nginx_dir" "$id")"
+        confirm_tmp_conf_write "$tmp_file" "$target_file" || {
+            rm -f "$tmp_file"
+            return 0
+        }
+        write_nginx_conf_from_tmp "$id" "$nginx_dir" "$tmp_file"
+        result=$?
+        rm -f "$tmp_file"
+        return "$result"
     fi
 
     if [ -f "$current_conf" ]; then
