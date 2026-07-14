@@ -65,6 +65,12 @@ HEALTH_URL=""
 NGINX_TEMPLATE=""
 PUBLIC_URL=""
 
+# 这些检测在项目列表中会被重复调用。缓存命令类型和 Nginx 目录，避免每个项目都
+# 额外执行一次 `docker compose version` / `nginx -t`。
+DN_TOOLS_COMPOSE_KIND="${DN_TOOLS_COMPOSE_KIND:-}"
+DN_TOOLS_NGINX_DIR_DETECTED="${DN_TOOLS_NGINX_DIR_DETECTED:-0}"
+DN_TOOLS_NGINX_DIR_CACHE="${DN_TOOLS_NGINX_DIR_CACHE:-}"
+
 require_root() {
     if [ "${DN_TOOLS_ALLOW_NON_ROOT:-0}" = "1" ]; then
         return 0
@@ -458,18 +464,66 @@ missing_installed_ids_from_state() {
 }
 
 collect_installed_ids() {
-    local id
-    cleanup_install_order_records || true
+    local id index tmp_dir installed_file emitted_file order_file cleaned_file
+    local probe_limit="${DN_TOOLS_PROBE_CONCURRENCY:-8}" active_probes=0
+    local ids=() batch_pids=() probe_pid
+    docker_available && compose_cmd_available || return 0
+    case "$probe_limit" in ''|*[!0-9]*|0) probe_limit=8 ;; esac
+
+    tmp_dir="$(mktemp -d)" || return 1
+    installed_file="$tmp_dir/installed"
+    emitted_file="$tmp_dir/emitted"
+    : > "$installed_file"
+    : > "$emitted_file"
+
+    # 安装状态彼此独立，并发查询所有项目；旧实现会在清理顺序、读取顺序和查漏
+    # 三个阶段重复执行 compose ps，项目越多等待越明显。
     while IFS= read -r id; do
-        [ -n "$id" ] && printf '%s\n' "$id"
-    done < <(ordered_installed_ids_from_state)
+        [ -n "$id" ] || continue
+        ids+=("$id")
+        index="${#ids[@]}"
+        (project_is_installed "$id" && printf '%s\n' "$id" > "$tmp_dir/$index.id") &
+        batch_pids+=("$!")
+        active_probes=$((active_probes + 1))
+        if [ "$active_probes" -ge "$probe_limit" ]; then
+            for probe_pid in "${batch_pids[@]}"; do
+                wait "$probe_pid" 2>/dev/null || true
+            done
+            batch_pids=()
+            active_probes=0
+        fi
+    done < <(list_project_ids)
+
+    for probe_pid in "${batch_pids[@]}"; do
+        wait "$probe_pid" 2>/dev/null || true
+    done
+
+    index=1
+    while [ "$index" -le "${#ids[@]}" ]; do
+        [ -f "$tmp_dir/$index.id" ] && cat "$tmp_dir/$index.id" >> "$installed_file"
+        index=$((index + 1))
+    done
+
+    order_file="$(install_order_file)"
+    if [ -f "$order_file" ]; then
+        cleaned_file="$tmp_dir/install-order.tsv"
+        awk -F '\t' '
+            FILENAME == ARGV[1] { installed[$0]=1; next }
+            installed[$2] && !seen[$2]++ { print }
+        ' "$installed_file" "$order_file" > "$cleaned_file"
+        mv "$cleaned_file" "$order_file"
+        LC_ALL=C sort -n -k1,1 "$order_file" | awk -F '\t' 'NF >= 2 { print $2 }' > "$emitted_file"
+    fi
+    cat "$emitted_file"
 
     # 兼容旧版本已安装项目：没有顺序记录时，按项目目录导入时间补到队尾。
     while IFS= read -r id; do
         [ -n "$id" ] || continue
+        grep -Fqx -- "$id" "$emitted_file" && continue
         record_project_install_order "$id" || true
         printf '%s\n' "$id"
-    done < <(missing_installed_ids_from_state)
+    done < "$installed_file"
+    rm -rf "$tmp_dir"
 }
 
 copy_builtin_project_to_app() {
@@ -524,20 +578,39 @@ reinstall_builtin_project() {
     copy_builtin_project_to_app "$id" replace
 }
 
+detect_compose_command() {
+    case "$DN_TOOLS_COMPOSE_KIND" in
+        docker|standalone) return 0 ;;
+        none) return 1 ;;
+    esac
+
+    if docker compose version >/dev/null 2>&1; then
+        DN_TOOLS_COMPOSE_KIND="docker"
+        return 0
+    fi
+    if command_exists docker-compose; then
+        DN_TOOLS_COMPOSE_KIND="standalone"
+        return 0
+    fi
+    DN_TOOLS_COMPOSE_KIND="none"
+    return 1
+}
+
 compose_cmd_available() {
-    docker compose version >/dev/null 2>&1 || command_exists docker-compose
+    detect_compose_command
 }
 
 compose_run() {
     local workdir="$1"
     shift
-    if docker compose version >/dev/null 2>&1; then
-        (cd "$workdir" && docker compose "$@")
-    elif command_exists docker-compose; then
-        (cd "$workdir" && docker-compose "$@")
-    else
+    detect_compose_command || {
         red "错误: 未检测到 docker compose 或 docker-compose。"
         return 127
+    }
+    if [ "$DN_TOOLS_COMPOSE_KIND" = "docker" ]; then
+        (cd "$workdir" && docker compose "$@")
+    else
+        (cd "$workdir" && docker-compose "$@")
     fi
 }
 
@@ -585,6 +658,8 @@ project_local_url() {
 
 check_url_mark() {
     local url="$1"
+    local connect_timeout="${DN_TOOLS_CHECK_CONNECT_TIMEOUT:-1}"
+    local max_time="${DN_TOOLS_CHECK_MAX_TIME:-2}"
     if ! command_exists curl; then
         printf "?"
         return 0
@@ -593,7 +668,7 @@ check_url_mark() {
         printf "-"
         return 0
     fi
-    if curl -fsS --connect-timeout 1 --max-time 2 "$url" >/dev/null 2>&1; then
+    if curl -fsS --connect-timeout "$connect_timeout" --max-time "$max_time" "$url" >/dev/null 2>&1; then
         printf "✅"
     else
         printf "❌"
@@ -651,7 +726,7 @@ record_project_image_versions() {
 }
 
 project_running_status_text() {
-    local id="$1" path ids running
+    local id="$1" known_installed="${2:-0}" path ids running
     if ! project_files_exist "$id"; then
         printf "未安装"
         return 0
@@ -661,7 +736,11 @@ project_running_status_text() {
         return 0
     fi
     path="$(app_project_path "$id")"
-    ids="$(compose_run "$path" ps -a -q 2>/dev/null || true)"
+    if [ "$known_installed" = "1" ]; then
+        ids="installed"
+    else
+        ids="$(compose_run "$path" ps -a -q 2>/dev/null || true)"
+    fi
     running="$(compose_run "$path" ps --status running -q 2>/dev/null || true)"
     if [ -z "$ids" ]; then
         printf "未安装"
@@ -706,9 +785,16 @@ confirm_no_placeholder_or_continue() {
 }
 
 detect_nginx_dir() {
-    local conf_path p
+    local conf_path p detected_dir=""
+    if [ "$DN_TOOLS_NGINX_DIR_DETECTED" = "1" ]; then
+        [ -n "$DN_TOOLS_NGINX_DIR_CACHE" ] && printf '%s' "$DN_TOOLS_NGINX_DIR_CACHE"
+        return 0
+    fi
+
     if [ -n "${NGINX_DIR_OVERRIDE:-}" ]; then
-        printf '%s' "$NGINX_DIR_OVERRIDE"
+        DN_TOOLS_NGINX_DIR_CACHE="$NGINX_DIR_OVERRIDE"
+        DN_TOOLS_NGINX_DIR_DETECTED=1
+        printf '%s' "$DN_TOOLS_NGINX_DIR_CACHE"
         return 0
     fi
 
@@ -718,17 +804,22 @@ detect_nginx_dir() {
             conf_path="$(nginx -V 2>&1 | grep -o -E '\-\-conf-path=[^ ]+' | cut -d '=' -f 2)"
         fi
         if [ -n "$conf_path" ] && [ -f "$conf_path" ]; then
-            dirname "$conf_path"
-            return 0
+            detected_dir="$(dirname "$conf_path")"
         fi
     fi
 
-    for p in "/etc/nginx" "/usr/local/nginx/conf" "/opt/homebrew/etc/nginx"; do
-        if [ -d "$p" ]; then
-            printf '%s' "$p"
-            return 0
-        fi
-    done
+    if [ -z "$detected_dir" ]; then
+        for p in "/etc/nginx" "/usr/local/nginx/conf" "/opt/homebrew/etc/nginx"; do
+            if [ -d "$p" ]; then
+                detected_dir="$p"
+                break
+            fi
+        done
+    fi
+
+    DN_TOOLS_NGINX_DIR_CACHE="$detected_dir"
+    DN_TOOLS_NGINX_DIR_DETECTED=1
+    [ -n "$DN_TOOLS_NGINX_DIR_CACHE" ] && printf '%s' "$DN_TOOLS_NGINX_DIR_CACHE"
 }
 
 nginx_project_conf() {

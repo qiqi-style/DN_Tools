@@ -115,7 +115,11 @@ TARGET_BASE_DIR=/app dntool
 NGINX_DIR_OVERRIDE=/etc/nginx dntool
 SKIP_NGINX_RELOAD=1 dntool
 DN_TOOLS_ALLOW_NON_ROOT=1 ./start.sh
+DN_TOOLS_CHECK_CONNECT_TIMEOUT=1 DN_TOOLS_CHECK_MAX_TIME=2 dntool
+DN_TOOLS_PROBE_CONCURRENCY=8 dntool
 ```
+
+项目列表中的 Docker 状态、内网和外网检测会并发执行，多个不可达地址不会再逐个累加等待时间。可通过 `DN_TOOLS_CHECK_CONNECT_TIMEOUT` 和 `DN_TOOLS_CHECK_MAX_TIME` 调整单个地址的连接和总超时秒数，通过 `DN_TOOLS_PROBE_CONCURRENCY` 调整同时检测的项目数。
 
 ## 注意事项
 

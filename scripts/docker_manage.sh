@@ -31,17 +31,28 @@ EOF
 }
 
 show_project_detail() {
-    local id="$1" path compose_file local_url public_url containers images health_url
+    local id="$1" path compose_file local_url public_url containers images
+    local probe_dir status_text local_mark public_mark
     path="$(project_runtime_path "$id")"
     compose_file="$path/docker-compose.yml"
+    compose_cmd_available || true
+    detect_nginx_dir >/dev/null
     load_project_meta "$id"
     local_url="$(project_local_url "$id")"
     public_url="$(project_public_url "$id")"
-    health_url="${HEALTH_URL:-$local_url}"
     containers="$(project_container_names "$compose_file")"
     images="${IMAGE_VERSION:-$(project_images "$compose_file")}"
     [ -n "$containers" ] || containers="未识别"
     [ -n "$images" ] || images="未识别"
+    probe_dir="$(mktemp -d)" || return 1
+    probe_project_table_row "$id" "$probe_dir" 1
+    status_text="$(cat "$probe_dir/1.status" 2>/dev/null)"
+    local_mark="$(cat "$probe_dir/1.local" 2>/dev/null)"
+    public_mark="$(cat "$probe_dir/1.public" 2>/dev/null)"
+    rm -rf "$probe_dir"
+    [ -n "$status_text" ] || status_text="未检测"
+    [ -n "$local_mark" ] || local_mark="?"
+    [ -n "$public_mark" ] || public_mark="?"
 
     qiqi_section "项目详情"
     printf "  ${QIQI_GREEN}项目名称${QIQI_PLAIN}: %s ${QIQI_WHITE}(%s)${QIQI_PLAIN}\n" "$PROJECT_NAME" "$id"
@@ -50,9 +61,15 @@ show_project_detail() {
     printf "  ${QIQI_GREEN}运行目录${QIQI_PLAIN}: %s\n" "$path"
     printf "  ${QIQI_GREEN}容器名称${QIQI_PLAIN}: %s\n" "$containers"
     printf "  ${QIQI_GREEN}安装镜像${QIQI_PLAIN}: %s\n" "$images"
-    printf "  ${QIQI_GREEN}当前状态${QIQI_PLAIN}: %b\n" "$(project_running_status "$id")"
-    printf "  ${QIQI_GREEN}内网地址${QIQI_PLAIN}: %s %b\n" "$local_url" "$(check_url_icon "$health_url")"
-    printf "  ${QIQI_GREEN}外网地址${QIQI_PLAIN}: %s %b\n" "$public_url" "$(check_url_icon "$public_url")"
+    printf "  ${QIQI_GREEN}当前状态${QIQI_PLAIN}: "
+    status_cell "$status_text"
+    printf '\n'
+    printf "  ${QIQI_GREEN}内网地址${QIQI_PLAIN}: %s " "$local_url"
+    check_url_mark_icon "$local_mark"
+    printf '\n'
+    printf "  ${QIQI_GREEN}外网地址${QIQI_PLAIN}: %s " "$public_url"
+    check_url_mark_icon "$public_mark"
+    printf '\n'
 }
 
 project_name_cell() {
@@ -100,6 +117,50 @@ mark_cell() {
     printf '%*s' "$spaces" ""
 }
 
+check_url_mark_icon() {
+    local mark="$1"
+    case "$mark" in
+        ✅) printf "${QIQI_GREEN}%s${QIQI_PLAIN}" "$mark" ;;
+        ❌) printf "${QIQI_RED}%s${QIQI_PLAIN}" "$mark" ;;
+        *) printf "${QIQI_GRAY}%s${QIQI_PLAIN}" "$mark" ;;
+    esac
+}
+
+array_contains_value() {
+    local needle="$1" value
+    shift
+    for value in "$@"; do
+        [ "$value" = "$needle" ] && return 0
+    done
+    return 1
+}
+
+probe_project_table_row() {
+    local id="$1" output_dir="$2" index="$3"
+    local local_url public_url health_url status_file local_file public_file local_pid
+    load_project_meta "$id"
+    local_url="$(project_local_url "$id")"
+    public_url="$(project_public_url "$id")"
+    health_url="${HEALTH_URL:-$local_url}"
+    status_file="$output_dir/$index.status"
+    local_file="$output_dir/$index.local"
+    public_file="$output_dir/$index.public"
+
+    # Docker 状态、内网和外网互不依赖，同时检测可把最坏等待时间从逐项累加
+    # 降到单次检测的超时时间。项目列表已经确认项目已安装，因此状态检测可
+    # 跳过一次重复的 `docker compose ps -a`。
+    project_running_status_text "$id" 1 > "$status_file" &
+    check_url_mark "$health_url" > "$local_file" &
+    local_pid="$!"
+    if [ "$public_url" = "$health_url" ]; then
+        wait "$local_pid"
+        cp "$local_file" "$public_file"
+    else
+        check_url_mark "$public_url" > "$public_file" &
+    fi
+    wait
+}
+
 print_installed_table_header() {
     local first_col="$1"
     printf '  '
@@ -116,9 +177,14 @@ print_installed_table_header() {
 }
 
 show_installed_projects_table() {
-    local with_choices="${1:-0}" ids=() id index option local_url public_url health_url status_text
+    local with_choices="${1:-0}" ids=() id index option status_text local_mark public_mark
+    local probe_dir probe_limit="${DN_TOOLS_PROBE_CONCURRENCY:-8}" active_probes=0
+    local batch_pids=() probe_pid
     shift || true
-    if [ "$#" -gt 0 ]; then
+    if [ "${1:-}" = "--" ]; then
+        shift
+        ids=("$@")
+    elif [ "$#" -gt 0 ]; then
         ids=("$@")
     else
         array_from_lines ids "$(collect_installed_ids)"
@@ -136,6 +202,29 @@ show_installed_projects_table() {
         print_installed_table_header "序号"
     fi
 
+    # 先完成一次环境检测并让所有后台子 shell 复用结果。
+    compose_cmd_available || true
+    detect_nginx_dir >/dev/null
+    probe_dir="$(mktemp -d)" || return 1
+    case "$probe_limit" in ''|*[!0-9]*|0) probe_limit=8 ;; esac
+    index=1
+    for id in "${ids[@]}"; do
+        probe_project_table_row "$id" "$probe_dir" "$index" &
+        batch_pids+=("$!")
+        active_probes=$((active_probes + 1))
+        if [ "$active_probes" -ge "$probe_limit" ]; then
+            for probe_pid in "${batch_pids[@]}"; do
+                wait "$probe_pid" 2>/dev/null || true
+            done
+            batch_pids=()
+            active_probes=0
+        fi
+        index=$((index + 1))
+    done
+    for probe_pid in "${batch_pids[@]}"; do
+        wait "$probe_pid" 2>/dev/null || true
+    done
+
     index=1
     for id in "${ids[@]}"; do
         load_project_meta "$id"
@@ -144,19 +233,22 @@ show_installed_projects_table() {
         else
             option="$index"
         fi
-        local_url="$(project_local_url "$id")"
-        public_url="$(project_public_url "$id")"
-        health_url="${HEALTH_URL:-$local_url}"
-        status_text="$(project_running_status_text "$id")"
+        status_text="$(cat "$probe_dir/$index.status" 2>/dev/null)"
+        local_mark="$(cat "$probe_dir/$index.local" 2>/dev/null)"
+        public_mark="$(cat "$probe_dir/$index.public" 2>/dev/null)"
+        [ -n "$status_text" ] || status_text="未检测"
+        [ -n "$local_mark" ] || local_mark="?"
+        [ -n "$public_mark" ] || public_mark="?"
         printf "  ${QIQI_GREEN}%-8s${QIQI_PLAIN}  ${QIQI_CYAN}%s${QIQI_PLAIN}  " "$option" "$(project_name_cell "$PROJECT_NAME" 26)"
         status_cell "$status_text"
         printf '  '
-        mark_cell "$(check_url_mark "$health_url")"
+        mark_cell "$local_mark"
         printf '  '
-        mark_cell "$(check_url_mark "$public_url")"
+        mark_cell "$public_mark"
         printf '\n'
         index=$((index + 1))
     done
+    rm -rf "$probe_dir"
 }
 
 show_all_installed_summary() {
@@ -404,13 +496,14 @@ install_builtin_project_by_choice() {
 }
 
 install_menu() {
-    local builtin_ids=() custom_ids=() id i choice status menu_no
+    local builtin_ids=() custom_ids=() installed_ids=() id i choice status menu_no
     while true; do
         array_from_lines builtin_ids "$(list_source_project_ids)"
         array_from_lines custom_ids "$(list_custom_app_project_ids)"
+        array_from_lines installed_ids "$(collect_installed_ids)"
         clear
         qiqi_banner "$PROJECT_TITLE" "$PROJECT_VERSION" "Docker 项目安装" "$PROJECT_URL"
-        show_all_installed_summary
+        show_installed_projects_table 0 -- "${installed_ids[@]}"
         qiqi_section "内置 Docker 项目"
         if [ "${#builtin_ids[@]}" -eq 0 ]; then
             muted "  暂无内置项目模板。"
@@ -418,7 +511,7 @@ install_menu() {
             i=1
             for id in "${builtin_ids[@]}"; do
                 load_project_meta "$id"
-                if project_is_installed "$id"; then
+                if array_contains_value "$id" "${installed_ids[@]}"; then
                     status="${QIQI_GREEN}已安装 / 进入管理${QIQI_PLAIN}"
                 else
                     status="${QIQI_WHITE}未安装 / 选择安装${QIQI_PLAIN}"
@@ -436,7 +529,7 @@ install_menu() {
             for id in "${custom_ids[@]}"; do
                 menu_no=$((991 + i))
                 load_project_meta "$id"
-                if project_is_installed "$id"; then
+                if array_contains_value "$id" "${installed_ids[@]}"; then
                     status="${QIQI_GREEN}已安装 / 进入管理${QIQI_PLAIN}"
                 else
                     status="${QIQI_WHITE}未安装 / 选择安装${QIQI_PLAIN}"
@@ -512,7 +605,7 @@ manage_menu() {
         array_from_lines ids "$(collect_installed_ids)"
         clear
         qiqi_banner "$PROJECT_TITLE" "$PROJECT_VERSION" "Docker 项目管理" "$PROJECT_URL"
-        show_installed_projects_table 1 "${ids[@]}"
+        show_installed_projects_table 1 -- "${ids[@]}"
         qiqi_menu_item "0" "返回主菜单"
         echo
         readp "  请输入选项 → " choice
