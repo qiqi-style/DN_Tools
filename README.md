@@ -10,6 +10,7 @@ DN_Tools 是一个 Bash 控制台工具，用来统一安装和管理 Docker Com
 - 记录安装时使用的镜像标记，例如 `ghcr.io/basketikun/chatgpt2api:latest`
 - 生成、预览、手动编辑、写入、删除 Nginx 反代配置
 - 更新时确认备份项目目录；当天已有同项目备份时可选择跳过备份，并可同步备份 Nginx 配置
+- 在“备份管理”中按项目浏览备份版本、备份日期、`/app` 目录与安装状态；可解压、恢复并安装或删除指定备份
 
 ## 必要环境
 
@@ -21,7 +22,7 @@ DN_Tools 是一个 Bash 控制台工具，用来统一安装和管理 Docker Com
 - `vim`，仅手动编辑 Nginx 配置时需要
 - 默认应用目录：`/app`
 
-Docker 和 Nginx 自动安装目前只是提示功能，需要先按服务器环境安装好依赖。
+首次进入控制台时，可从“运行环境菜单”安装 Docker CE（含 Buildx 与 Docker Compose v2）和 Nginx。目前支持 Ubuntu、Debian 和 CentOS；Docker 使用 Docker 官方软件源，Nginx 使用系统软件源。
 
 ## 安装
 

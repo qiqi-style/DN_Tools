@@ -70,6 +70,7 @@ PUBLIC_URL=""
 DN_TOOLS_COMPOSE_KIND="${DN_TOOLS_COMPOSE_KIND:-}"
 DN_TOOLS_NGINX_DIR_DETECTED="${DN_TOOLS_NGINX_DIR_DETECTED:-0}"
 DN_TOOLS_NGINX_DIR_CACHE="${DN_TOOLS_NGINX_DIR_CACHE:-}"
+DN_TOOLS_LINUX_DISTRIBUTION="${DN_TOOLS_LINUX_DISTRIBUTION:-}"
 
 require_root() {
     if [ "${DN_TOOLS_ALLOW_NON_ROOT:-0}" = "1" ]; then
@@ -93,14 +94,157 @@ nginx_available() {
     command_exists nginx
 }
 
-install_docker_placeholder() {
-    yellow "Docker 自动安装功能当前是占位提示。"
-    muted "请先按服务器系统安装 Docker 与 Docker Compose，之后重新进入 DN_Tools。"
+detect_linux_distribution() {
+    if [ ! -r /etc/os-release ]; then
+        red "无法识别系统：未找到 /etc/os-release。"
+        return 1
+    fi
+
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    case "${ID:-}" in
+        ubuntu|debian|centos) DN_TOOLS_LINUX_DISTRIBUTION="$ID" ;;
+        *)
+            red "暂不支持的系统：${PRETTY_NAME:-${ID:-未知系统}}。"
+            muted "当前支持 Ubuntu、Debian 和 CentOS。"
+            return 1
+            ;;
+    esac
 }
 
-install_nginx_placeholder() {
-    yellow "Nginx 自动安装功能当前是占位提示。"
-    muted "请先按服务器系统安装 Nginx，之后重新进入 DN_Tools。"
+start_and_enable_service() {
+    local service_name="$1"
+    if ! command_exists systemctl; then
+        yellow "未检测到 systemctl，请手动启动服务：$service_name"
+        return 0
+    fi
+
+    if systemctl enable --now "$service_name"; then
+        green "服务已启动并设为开机自启：$service_name"
+    else
+        red "服务启动失败：$service_name"
+        muted "请检查：systemctl status $service_name"
+        return 1
+    fi
+}
+
+add_docker_apt_repository() {
+    local distribution architecture codename
+    distribution="$1"
+
+    apt-get update || return 1
+    apt-get install -y ca-certificates curl || return 1
+    install -m 0755 -d /etc/apt/keyrings || return 1
+    curl -fsSL "https://download.docker.com/linux/$distribution/gpg" -o /etc/apt/keyrings/docker.asc || return 1
+    chmod a+r /etc/apt/keyrings/docker.asc || return 1
+
+    architecture="$(dpkg --print-architecture)" || return 1
+    codename="${VERSION_CODENAME:-${UBUNTU_CODENAME:-}}"
+    if [ -z "$codename" ]; then
+        red "无法识别系统代号，无法配置 Docker 官方软件源。"
+        return 1
+    fi
+    printf '%s\n' \
+        "deb [arch=$architecture signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/$distribution $codename stable" \
+        > /etc/apt/sources.list.d/docker.list || return 1
+    apt-get update
+}
+
+install_docker() {
+    local distribution package_manager
+    if docker_available; then
+        green "Docker 已安装，无需重复安装。"
+        compose_cmd_available || yellow "提示：未检测到 Docker Compose，请按系统提示补装。"
+        return 0
+    fi
+
+    detect_linux_distribution || return 1
+    distribution="$DN_TOOLS_LINUX_DISTRIBUTION"
+    qiqi_section "安装 Docker"
+    pink ">>> 正在为 $distribution 安装 Docker 与 Docker Compose..."
+
+    case "$distribution" in
+        ubuntu|debian)
+            add_docker_apt_repository "$distribution" || return 1
+            apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+            ;;
+        centos)
+            if command_exists dnf; then
+                package_manager="dnf"
+                "$package_manager" install -y dnf-plugins-core || return 1
+            elif command_exists yum; then
+                package_manager="yum"
+                "$package_manager" install -y yum-utils || return 1
+            else
+                red "未找到 dnf 或 yum，无法安装 Docker。"
+                return 1
+            fi
+            "$package_manager" config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo || return 1
+            "$package_manager" install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+            ;;
+    esac || {
+        red "Docker 安装失败。"
+        return 1
+    }
+
+    start_and_enable_service docker || return 1
+    if ! docker_available; then
+        red "Docker 命令仍不可用，请检查安装日志。"
+        return 1
+    fi
+    if compose_cmd_available; then
+        green "Docker 与 Docker Compose 安装完成。"
+    else
+        yellow "Docker 已安装，但未检测到 Docker Compose。"
+        muted "请根据系统软件源安装 Docker Compose 后重试。"
+    fi
+}
+
+install_nginx() {
+    local distribution package_manager
+    if nginx_available; then
+        green "Nginx 已安装，无需重复安装。"
+        return 0
+    fi
+
+    detect_linux_distribution || return 1
+    distribution="$DN_TOOLS_LINUX_DISTRIBUTION"
+    qiqi_section "安装 Nginx"
+    pink ">>> 正在为 $distribution 安装 Nginx..."
+
+    case "$distribution" in
+        ubuntu|debian)
+            apt-get update && apt-get install -y nginx
+            ;;
+        centos)
+            if command_exists dnf; then
+                package_manager="dnf"
+            elif command_exists yum; then
+                package_manager="yum"
+            else
+                red "未找到 dnf 或 yum，无法安装 Nginx。"
+                return 1
+            fi
+            "$package_manager" install -y nginx
+            ;;
+    esac || {
+        red "Nginx 安装失败。"
+        return 1
+    }
+
+    start_and_enable_service nginx || return 1
+    if nginx_available; then
+        green "Nginx 安装完成。"
+    else
+        red "Nginx 命令仍不可用，请检查安装日志。"
+        return 1
+    fi
+}
+
+backup_manage_placeholder() {
+    qiqi_section "备份管理"
+    yellow "备份管理功能正在规划中。"
+    muted "后续将在此提供备份浏览、恢复与清理等功能。"
 }
 
 show_environment_status() {

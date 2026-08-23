@@ -134,7 +134,7 @@ pink ">>> 正在写入全局命令"
 write_launcher "$BIN_PATH"
 
 green "安装完成。以后可以运行: dntool"
-yellow "提示: Docker/Nginx 自动安装当前仍为占位功能，请先按服务器环境安装依赖。"
+yellow "提示: 首次进入控制台时，可按菜单提示安装 Docker 和 Nginx。"
 
 if [ "${DN_TOOLS_NO_AUTO_START:-0}" = "1" ]; then
     yellow "已跳过自动启动（DN_TOOLS_NO_AUTO_START=1）。"
