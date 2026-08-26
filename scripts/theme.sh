@@ -27,7 +27,7 @@ export LANG=en_US.UTF-8
 #
 # 主题模式：
 #
-#   QIQI_THEME_MODE=auto     # 默认。自动判断终端背景色，失败时使用 COLORFGBG/contrast 兜底。
+#   QIQI_THEME_MODE=auto     # 默认。通过 COLORFGBG 判断背景色；无法判断时使用 contrast 兜底。
 #   QIQI_THEME_MODE=contrast # 高对比配色，浅色/暗色背景都尽量清楚。
 #   QIQI_THEME_MODE=light    # 明色终端背景，使用更深的绿色/青色/粉色。
 #   QIQI_THEME_MODE=dark     # 暗色终端背景，使用更亮的霓虹色。
@@ -35,7 +35,7 @@ export LANG=en_US.UTF-8
 #
 # 自动检测微调：
 #
-#   QIQI_THEME_AUTO_QUERY=0  # 禁用 OSC 11 背景色查询，只使用 COLORFGBG/contrast 兜底。
+#   QIQI_THEME_AUTO_QUERY=1  # 可选：启用 OSC 11 背景色查询（部分终端会异步回传控制字符，默认关闭）。
 #   QIQI_LIGHT_BG_THRESHOLD=160 # 背景亮度阈值，数值越低越容易判定为明色背景。
 #
 # 关闭颜色：
@@ -54,7 +54,10 @@ QIQI_YOUTUBE_URL="${QIQI_YOUTUBE_URL:-https://www.youtube.com/@qiqi-style}"
 QIQI_BLOG_URL="${QIQI_BLOG_URL:-https://qiaiai.xyz}"
 QIQI_THEME_MODE="${QIQI_THEME_MODE:-auto}"
 QIQI_BANNER_STYLE="${QIQI_BANNER_STYLE:-full}"
-QIQI_THEME_AUTO_QUERY="${QIQI_THEME_AUTO_QUERY:-1}"
+# OSC 11 的回复通过终端输入流异步返回。部分终端或 SSH/终端复用环境会在
+# 查询超时后才返回，导致控制字符被下一次 read 当作用户输入并显示成乱码。
+# 因此默认只使用不会向输入流写入数据的检测方式；需要精确检测时可由用户显式开启。
+QIQI_THEME_AUTO_QUERY="${QIQI_THEME_AUTO_QUERY:-0}"
 QIQI_LIGHT_BG_THRESHOLD="${QIQI_LIGHT_BG_THRESHOLD:-160}"
 QIQI_OSC_QUERY_SENT=0
 QIQI_THEME_LOADED=1
@@ -179,10 +182,10 @@ qiqi_detect_theme_mode() {
         light|dark|contrast|plain|none) printf '%s' "$mode"; return 0 ;;
     esac
 
-    # 交互终端优先使用 OSC 11 查询真实背景色：
+    # 可选地通过 OSC 11 查询真实背景色：
     #   request : ESC ] 11 ; ? ESC \
     #   response: ESC ] 11 ; rgb:RRRR/GGGG/BBBB BEL
-    # 查询后 readp 会再清理一次可能延迟返回的响应，避免 ^[]11;rgb... 泄漏到输入提示。
+    # 该功能默认关闭：某些终端的异步响应无法可靠地在读取用户输入前完成。
     queried="$(qiqi_query_terminal_theme 2>/dev/null)" || queried=""
     if [ -n "$queried" ]; then
         printf '%s' "$queried"
