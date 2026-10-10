@@ -200,11 +200,46 @@ install_docker() {
     fi
 }
 
+ensure_nginx_app_conf_link() {
+    local app_nginx_dir conf_link
+    app_nginx_dir="$TARGET_BASE_DIR/nginx"
+    conf_link="$app_nginx_dir/conf"
+
+    [ -d /etc/nginx ] || {
+        yellow "未找到 /etc/nginx，跳过创建 Nginx 配置入口。"
+        return 0
+    }
+    mkdir -p "$app_nginx_dir" || {
+        red "无法创建 Nginx 目录: $app_nginx_dir"
+        return 1
+    }
+
+    if [ -L "$conf_link" ]; then
+        if [ "$(readlink "$conf_link")" = "/etc/nginx" ]; then
+            green "Nginx 配置入口已存在: $conf_link -> /etc/nginx"
+            return 0
+        fi
+        yellow "配置入口已存在且指向其他位置，保留不变: $conf_link -> $(readlink "$conf_link")"
+        return 0
+    fi
+    if [ -e "$conf_link" ]; then
+        yellow "配置入口路径已存在，保留不变: $conf_link"
+        return 0
+    fi
+
+    ln -s /etc/nginx "$conf_link" || {
+        red "创建 Nginx 配置入口失败: $conf_link"
+        return 1
+    }
+    green "已创建 Nginx 配置入口: $conf_link -> /etc/nginx"
+}
+
 install_nginx() {
     local distribution package_manager
     if nginx_available; then
         green "Nginx 已安装，无需重复安装。"
-        return 0
+        ensure_nginx_app_conf_link
+        return $?
     fi
 
     detect_linux_distribution || return 1
@@ -239,6 +274,7 @@ install_nginx() {
         red "Nginx 命令仍不可用，请检查安装日志。"
         return 1
     fi
+    ensure_nginx_app_conf_link
 }
 
 backup_manage_placeholder() {

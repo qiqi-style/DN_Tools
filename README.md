@@ -24,6 +24,8 @@ DN_Tools 是一个 Bash 控制台工具，用来统一安装和管理 Docker Com
 
 首次进入控制台时，可从“运行环境菜单”安装 Docker CE（含 Buildx 与 Docker Compose v2）和 Nginx。目前支持 Ubuntu、Debian 和 CentOS；Docker 使用 Docker 官方软件源，Nginx 使用系统软件源。
 
+安装 Nginx 后，工具会创建 `/app/nginx/conf`，并将其链接到系统配置目录 `/etc/nginx`。可以通过 `/app/nginx/conf` 编辑 `nginx.conf`、`conf.d/` 等配置；这些文件仍由系统软件包安装的 Nginx 从 `/etc/nginx` 加载。若该路径已存在，工具会保留现有内容并提示，不会覆盖。
+
 ## 安装
 
 一键安装：
